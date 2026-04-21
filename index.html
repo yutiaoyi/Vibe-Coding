@@ -62,6 +62,7 @@
             if (waveCycle < 0) hasSwitched = false;
 
             drawLyrics();
+            
             drawOceanWithTripleLayers();
 
             for (let p of particles) {
@@ -95,32 +96,45 @@
             text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
         }
 
-        // --- 核心工具函数：获取三层海浪在当前 X 坐标下的最高点 ---
-        function getHighestWaveEdge(x) {
-            // 白色层边缘
-            let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
-            let y1 = height * 0.42 + n1 * 140 + tideOffset;
+        // --- 修改部分：减小了交互半径和强度 ---
+        function getMouseWaveOffset(x, currentY) {
+            let dx = abs(x - mouseX);
+            let dy = abs(currentY - mouseY);
+            let offset = 0;
             
-            // 浅蓝层边缘
-            let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
-            let y2 = height * 0.435 + n2 * 130 + tideOffset;
+            // 将感应半径从 180 缩小到 80
+            let interactionRadius = 80; 
             
-            // 深蓝层边缘
-            let n3 = noise(x * 0.005, frameCount * tideSpeed);
-            let y3 = height * 0.45 + n3 * 120 + tideOffset;
+            if (dx < interactionRadius && dy < interactionRadius) {
+                let strengthX = cos(map(dx, 0, interactionRadius, 0, HALF_PI));
+                let strengthY = cos(map(dy, 0, interactionRadius, 0, HALF_PI));
+                // 产生一个向下的位移偏移，幅度也相应调小一点（从120调至70）
+                offset = strengthX * strengthY * 70; 
+            }
+            return offset;
+        }
 
-            // 返回三者中的最小值（即视觉上的最高点）
+        function getHighestWaveEdge(x) {
+            let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
+            let base_y1 = height * 0.42 + n1 * 140 + tideOffset;
+            let y1 = base_y1 + getMouseWaveOffset(x, base_y1);
+            
+            let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
+            let base_y2 = height * 0.435 + n2 * 130 + tideOffset;
+            let y2 = base_y2 + getMouseWaveOffset(x, base_y2);
+            
+            let n3 = noise(x * 0.005, frameCount * tideSpeed);
+            let base_y3 = height * 0.45 + n3 * 120 + tideOffset;
+            let y3 = base_y3 + getMouseWaveOffset(x, base_y3);
+
             return min(y1, min(y2, y3));
         }
 
         function drawOceanWithTripleLayers() {
-            // 白色泡沫层
             fill(255, 255, 255, 180); 
             drawWaveShape(height * 0.42, 0.006, 140, 500);
-            // 浅蓝层
             fill('#8ea1b8'); 
             drawWaveShape(height * 0.435, 0.0055, 130, 250);
-            // 深蓝主色层
             fill('#6b7e96'); 
             drawWaveShape(height * 0.45, 0.005, 120, 0);
         }
@@ -131,8 +145,9 @@
             vertex(0, height);
             for (let x = 0; x <= width; x += 15) {
                 let n = noise(x * nScale, frameCount * tideSpeed + tOff);
-                let waveEdge = baseH + n * nAmp + tideOffset; 
-                vertex(x, waveEdge);
+                let base_y = baseH + n * nAmp + tideOffset;
+                let final_y = base_y + getMouseWaveOffset(x, base_y);
+                vertex(x, final_y);
             }
             vertex(width, height);
             endShape(CLOSE);
@@ -150,17 +165,8 @@
             }
 
             update() {
-                // 粒子的物理位置同步参考最高边缘点，使其运动更自然
                 let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * tideSpeed);
                 let currentTideY = this.originY + tideOffset + n * 30;
-
-                let mouse = createVector(mouseX, mouseY);
-                if (p5.Vector.dist(this.pos, mouse) < 100) {
-                    let repulsion = p5.Vector.sub(this.pos, mouse);
-                    repulsion.normalize();
-                    repulsion.mult(6);
-                    this.vel.add(repulsion);
-                }
 
                 let target = createVector(this.originX, currentTideY);
                 let spring = p5.Vector.sub(target, this.pos);
@@ -172,7 +178,6 @@
             }
 
             display() {
-                // 获取当前 X 轴上的三层海浪最高点
                 let waveEdge = getHighestWaveEdge(this.pos.x);
 
                 if (this.pos.y > waveEdge - 15) {
