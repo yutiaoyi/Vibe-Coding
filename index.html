@@ -24,7 +24,6 @@
         let tideOffset = 0;
         let tideSpeed = 0.01; 
 
-        // 5段歌词内容
         const lyrics = [
             { zh: "盼着望着\n但明天太远了", en: "Gazing and longing,\nBut tomorrow is too far away." },
             { zh: "这就是我的生活\n太阳在坠落\n海浪在发愁\n不停地退后", en: "This is my life. The sun is falling,\nThe waves are grieving, retreating endlessly." },
@@ -63,13 +62,11 @@
             if (waveCycle < 0) hasSwitched = false;
 
             drawLyrics();
-
-            // 调用修改后的三层海浪函数
             drawOceanWithTripleLayers();
 
             for (let p of particles) {
                 let estY = p.originY + tideOffset;
-                if (estY > -50 && estY < height + 50) {
+                if (estY > -100 && estY < height + 100) {
                     p.update();
                     p.display();
                 }
@@ -98,23 +95,36 @@
             text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
         }
 
-        // 修改后的绘图函数：包含三层边缘（白色泡沫、中间过渡、主蓝色）
+        // --- 核心工具函数：获取三层海浪在当前 X 坐标下的最高点 ---
+        function getHighestWaveEdge(x) {
+            // 白色层边缘
+            let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
+            let y1 = height * 0.42 + n1 * 140 + tideOffset;
+            
+            // 浅蓝层边缘
+            let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
+            let y2 = height * 0.435 + n2 * 130 + tideOffset;
+            
+            // 深蓝层边缘
+            let n3 = noise(x * 0.005, frameCount * tideSpeed);
+            let y3 = height * 0.45 + n3 * 120 + tideOffset;
+
+            // 返回三者中的最小值（即视觉上的最高点）
+            return min(y1, min(y2, y3));
+        }
+
         function drawOceanWithTripleLayers() {
-            // 1. 最顶层：白色泡沫边缘 (Foam)
+            // 白色泡沫层
             fill(255, 255, 255, 180); 
             drawWaveShape(height * 0.42, 0.006, 140, 500);
-
-            // 2. 中间层：浅蓝色过渡涂层 (Intermediate)
-            // 颜色介于白色和 #6b7e96 之间，带有一种清透的水汽感
+            // 浅蓝层
             fill('#8ea1b8'); 
             drawWaveShape(height * 0.435, 0.0055, 130, 250);
-
-            // 3. 基础海浪层：主蓝色 (Main Ocean)
+            // 深蓝主色层
             fill('#6b7e96'); 
             drawWaveShape(height * 0.45, 0.005, 120, 0);
         }
 
-        // 通用的波浪绘制辅助函数，确保三层都是不规则的边缘形状
         function drawWaveShape(baseH, nScale, nAmp, tOff) {
             noStroke();
             beginShape();
@@ -135,11 +145,12 @@
                 this.pos = createVector(x, y);
                 this.vel = createVector(0, 0);
                 this.char = chars.charAt(floor(random(chars.length)));
-                this.baseAlpha = random(60, 255);
+                this.baseAlpha = random(80, 255);
                 this.rarity = random(0, 1);
             }
 
             update() {
+                // 粒子的物理位置同步参考最高边缘点，使其运动更自然
                 let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * tideSpeed);
                 let currentTideY = this.originY + tideOffset + n * 30;
 
@@ -161,15 +172,24 @@
             }
 
             display() {
-                let n = noise(this.pos.x * 0.005, frameCount * tideSpeed);
-                let waveEdge = height * 0.45 + n * 120 + tideOffset;
+                // 获取当前 X 轴上的三层海浪最高点
+                let waveEdge = getHighestWaveEdge(this.pos.x);
 
-                if (this.pos.y > waveEdge - 10) {
+                if (this.pos.y > waveEdge - 15) {
                     let depth = this.pos.y - waveEdge;
                     let densityThreshold = map(depth, 0, height, 1.0, 0.3, true);
 
                     if (this.rarity < densityThreshold) {
-                        fill(10, 30, 80, this.baseAlpha);
+                        let colorWhite = color(255, 255, 255);
+                        let colorBlue = color(10, 30, 80);
+                        
+                        let transitionDist = 25; 
+                        let lerpAmt = map(depth, 0, transitionDist, 0, 1, true);
+                        
+                        let finalCol = lerpColor(colorWhite, colorBlue, lerpAmt);
+                        finalCol.setAlpha(this.baseAlpha);
+                        
+                        fill(finalCol);
                         textSize(11);
                         noStroke();
                         text(this.char, this.pos.x, this.pos.y);
@@ -179,7 +199,10 @@
                         }
                         
                         if (random(1) > 0.985 && depth < height * 0.4) {
-                            stroke(20, 50, 100, 30);
+                            let strokeWhite = color(255, 255, 255, 40);
+                            let strokeBlue = color(20, 50, 100, 30);
+                            let finalStroke = lerpColor(strokeWhite, strokeBlue, lerpAmt);
+                            stroke(finalStroke);
                             strokeWeight(0.5);
                             line(this.pos.x, this.pos.y, this.pos.x + 15, this.pos.y + 15);
                         }
