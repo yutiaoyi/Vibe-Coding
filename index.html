@@ -13,9 +13,32 @@
         canvas {
             display: block;
         }
+        /* 交互开关按钮样式 */
+        #toggle-btn {
+            position: absolute;
+            bottom: 25px;
+            right: 25px;
+            padding: 10px 20px;
+            background-color: rgba(107, 126, 150, 0.2); /* 海浪深蓝色透明 */
+            border: 1px solid #6b7e96;
+            color: #6b7e96;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+            z-index: 100;
+            outline: none;
+            border-radius: 4px;
+        }
+        #toggle-btn:hover {
+            background-color: rgba(107, 126, 150, 0.8);
+            color: white;
+        }
     </style>
 </head>
 <body>
+
+    <button id="toggle-btn" onclick="toggleInteraction()">INTERACTION: ON</button>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <script>
@@ -23,6 +46,9 @@
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>/[]{}";
         let tideOffset = 0;
         let tideSpeed = 0.01; 
+        
+        // 交互开关状态
+        let isInteractionEnabled = true;
 
         const lyrics = [
             { zh: "盼着望着\n但明天太远了", en: "Gazing and longing,\nBut tomorrow is too far away." },
@@ -47,6 +73,13 @@
                     particles.push(new Particle(x + offX, y + offY));
                 }
             }
+        }
+
+        // 切换交互开关的方法
+        function toggleInteraction() {
+            isInteractionEnabled = !isInteractionEnabled;
+            let btn = document.getElementById('toggle-btn');
+            btn.innerText = isInteractionEnabled ? "INTERACTION: ON" : "INTERACTION: OFF";
         }
 
         function draw() {
@@ -97,6 +130,9 @@
         }
 
         function getMasterInteractionOffset(x) {
+            // 如果交互关闭，直接返回 0
+            if (!isInteractionEnabled) return 0;
+
             let darkBaseY = height * 0.45 + tideOffset; 
             let diffY = mouseY - darkBaseY;
             let globalShift = diffY * 0.25;
@@ -110,23 +146,18 @@
             return globalShift + localShift;
         }
 
-        // --- 核心修改：动态计算三层中的最高点（最小值） ---
         function getHighestWaveEdge(x) {
             let mOffset = getMasterInteractionOffset(x);
 
-            // 计算白色层当前位置高度
             let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
             let y1 = height * 0.42 + n1 * 140 + tideOffset + mOffset;
 
-            // 计算浅蓝层当前位置高度
             let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
             let y2 = height * 0.435 + n2 * 130 + tideOffset + mOffset;
 
-            // 计算深蓝层当前位置高度
             let n3 = noise(x * 0.005, frameCount * tideSpeed);
             let y3 = height * 0.45 + n3 * 120 + tideOffset + mOffset;
 
-            // 取三者中的最小值（即离屏幕顶部最近、最高的海拔）
             return min(y1, min(y2, y3));
         }
 
@@ -187,7 +218,6 @@
             }
 
             display() {
-                // 实时获取三层海浪合并后的最高边缘
                 let waveEdge = getHighestWaveEdge(this.pos.x);
 
                 if (this.pos.y > waveEdge) {
