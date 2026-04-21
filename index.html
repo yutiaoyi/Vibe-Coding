@@ -40,38 +40,38 @@
             createCanvas(windowWidth, windowHeight);
             textFont('Courier New', 'monospace');
             
-            let spacing = 16; 
+            let spacing = 14; 
             for (let x = -20; x < width + 20; x += spacing) {
                 for (let y = -height; y < height * 2.5; y += spacing) {
-                    let offX = random(-7, 7);
-                    let offY = random(-7, 7);
+                    let offX = random(-6, 6);
+                    let offY = random(-6, 6);
                     particles.push(new Particle(x + offX, y + offY));
                 }
             }
         }
 
         function draw() {
-            // 1. 底层沙滩
+            // 1. 沙滩背景
             drawBeach();
 
             // 2. 潮汐波动计算
             let waveCycle = sin(frameCount * tideSpeed); 
             tideOffset = map(waveCycle, -1, 1, height * 0.15, -height * 0.65); 
 
-            // 涨潮至完全覆盖时切换歌词
+            // 3. 逻辑：涨潮至顶切换歌词
             if (waveCycle > 0.95 && !hasSwitched) {
                 lyricIndex = (lyricIndex + 1) % lyrics.length;
                 hasSwitched = true;
             }
             if (waveCycle < 0) hasSwitched = false;
 
-            // 3. 【底层图层】绘制歌词
+            // 4. 【底层层级】绘制歌词
             drawLyrics();
 
-            // 4. 【中间图层】绘制不透明海浪基底
-            drawOceanBase();
+            // 5. 【中间层级】绘制大海及浪花边缘
+            drawOceanWithFoam();
 
-            // 5. 【顶层图层】更新并绘制乱码字符
+            // 6. 【顶层层级】更新并绘制乱码字符
             for (let p of particles) {
                 let estY = p.originY + tideOffset;
                 if (estY > -50 && estY < height + 50) {
@@ -93,21 +93,36 @@
         function drawLyrics() {
             textAlign(CENTER, TOP);
             let baseY = height * 0.1;
-            
-            // 英文部分
             fill(120, 120, 120, 180);
             textSize(14);
             text(lyrics[lyricIndex].en, width/2, baseY);
             
-            // 中文部分
             fill(51, 51, 51, 200);
             textSize(14);
             let enLines = lyrics[lyricIndex].en.split('\n').length;
             text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
         }
 
-        function drawOceanBase() {
-            fill('#6b7e96'); // 使用不透明色码，确保完全遮挡歌词
+        // 修改后的绘图函数：包含白色泡沫边缘
+        function drawOceanWithFoam() {
+            // A. 先绘制一层稍微高一点的“白色浪花”
+            // 这层颜色使用白色，且带有一定透明度
+            fill(255, 255, 255, 180); 
+            noStroke();
+            beginShape();
+            vertex(0, height);
+            for (let x = 0; x <= width; x += 15) {
+                // 使用稍微不同的 noise 偏移，让白色边缘和蓝色边缘不同步
+                let n = noise(x * 0.006, frameCount * tideSpeed + 100); 
+                // 白色边缘比蓝色边缘稍微高 10-20 像素
+                let foamEdge = height * 0.43 + n * 140 + tideOffset; 
+                vertex(x, foamEdge);
+            }
+            vertex(width, height);
+            endShape(CLOSE);
+
+            // B. 绘制主蓝色海浪层
+            fill('#6b7e96'); 
             noStroke();
             beginShape();
             vertex(0, height);
@@ -127,8 +142,8 @@
                 this.pos = createVector(x, y);
                 this.vel = createVector(0, 0);
                 this.char = chars.charAt(floor(random(chars.length)));
-                // 【深浅设置】：随机 Alpha 范围扩大，产生更明显的深浅感
-                this.baseAlpha = random(50, 255);
+                this.baseAlpha = random(60, 255);
+                this.rarity = random(0, 1);
             }
 
             update() {
@@ -156,23 +171,26 @@
                 let n = noise(this.pos.x * 0.005, frameCount * tideSpeed);
                 let waveEdge = height * 0.45 + n * 120 + tideOffset;
 
-                if (this.pos.y > waveEdge - 15) {
-                    // 设置随机深浅颜色
-                    fill(10, 30, 80, this.baseAlpha);
-                    textSize(11);
-                    noStroke();
-                    text(this.char, this.pos.x, this.pos.y);
-                    
-                    // 【粗细设置】：如果 Alpha 较高（较亮的字符），重复绘制一次并轻微偏移，模拟加粗效果
-                    if (this.baseAlpha > 180) {
-                        text(this.char, this.pos.x + 0.5, this.pos.y);
-                    }
-                    
-                    // 偶尔生成的连线
-                    if (random(1) > 0.985) {
-                        stroke(20, 50, 100, 25);
-                        strokeWeight(0.5);
-                        line(this.pos.x, this.pos.y, this.pos.x + 15, this.pos.y + 15);
+                // 文字粒子依然渲染在海浪线下方
+                if (this.pos.y > waveEdge - 10) {
+                    let depth = this.pos.y - waveEdge;
+                    let densityThreshold = map(depth, 0, height, 1.0, 0.3, true);
+
+                    if (this.rarity < densityThreshold) {
+                        fill(10, 30, 80, this.baseAlpha);
+                        textSize(11);
+                        noStroke();
+                        text(this.char, this.pos.x, this.pos.y);
+                        
+                        if (this.baseAlpha > 180) {
+                            text(this.char, this.pos.x + 0.5, this.pos.y);
+                        }
+                        
+                        if (random(1) > 0.985 && depth < height * 0.4) {
+                            stroke(20, 50, 100, 30);
+                            strokeWeight(0.5);
+                            line(this.pos.x, this.pos.y, this.pos.x + 15, this.pos.y + 15);
+                        }
                     }
                 }
             }
