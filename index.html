@@ -51,27 +51,22 @@
         }
 
         function draw() {
-            // 1. 沙滩背景
             drawBeach();
 
-            // 2. 潮汐波动计算
             let waveCycle = sin(frameCount * tideSpeed); 
             tideOffset = map(waveCycle, -1, 1, height * 0.15, -height * 0.65); 
 
-            // 3. 逻辑：涨潮至顶切换歌词
             if (waveCycle > 0.95 && !hasSwitched) {
                 lyricIndex = (lyricIndex + 1) % lyrics.length;
                 hasSwitched = true;
             }
             if (waveCycle < 0) hasSwitched = false;
 
-            // 4. 【底层层级】绘制歌词
             drawLyrics();
 
-            // 5. 【中间层级】绘制大海及浪花边缘
-            drawOceanWithFoam();
+            // 调用修改后的三层海浪函数
+            drawOceanWithTripleLayers();
 
-            // 6. 【顶层层级】更新并绘制乱码字符
             for (let p of particles) {
                 let estY = p.originY + tideOffset;
                 if (estY > -50 && estY < height + 50) {
@@ -103,32 +98,30 @@
             text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
         }
 
-        // 修改后的绘图函数：包含白色泡沫边缘
-        function drawOceanWithFoam() {
-            // A. 先绘制一层稍微高一点的“白色浪花”
-            // 这层颜色使用白色，且带有一定透明度
+        // 修改后的绘图函数：包含三层边缘（白色泡沫、中间过渡、主蓝色）
+        function drawOceanWithTripleLayers() {
+            // 1. 最顶层：白色泡沫边缘 (Foam)
             fill(255, 255, 255, 180); 
+            drawWaveShape(height * 0.42, 0.006, 140, 500);
+
+            // 2. 中间层：浅蓝色过渡涂层 (Intermediate)
+            // 颜色介于白色和 #6b7e96 之间，带有一种清透的水汽感
+            fill('#8ea1b8'); 
+            drawWaveShape(height * 0.435, 0.0055, 130, 250);
+
+            // 3. 基础海浪层：主蓝色 (Main Ocean)
+            fill('#6b7e96'); 
+            drawWaveShape(height * 0.45, 0.005, 120, 0);
+        }
+
+        // 通用的波浪绘制辅助函数，确保三层都是不规则的边缘形状
+        function drawWaveShape(baseH, nScale, nAmp, tOff) {
             noStroke();
             beginShape();
             vertex(0, height);
             for (let x = 0; x <= width; x += 15) {
-                // 使用稍微不同的 noise 偏移，让白色边缘和蓝色边缘不同步
-                let n = noise(x * 0.006, frameCount * tideSpeed + 100); 
-                // 白色边缘比蓝色边缘稍微高 10-20 像素
-                let foamEdge = height * 0.43 + n * 140 + tideOffset; 
-                vertex(x, foamEdge);
-            }
-            vertex(width, height);
-            endShape(CLOSE);
-
-            // B. 绘制主蓝色海浪层
-            fill('#6b7e96'); 
-            noStroke();
-            beginShape();
-            vertex(0, height);
-            for (let x = 0; x <= width; x += 20) {
-                let n = noise(x * 0.005, frameCount * tideSpeed);
-                let waveEdge = height * 0.45 + n * 120 + tideOffset; 
+                let n = noise(x * nScale, frameCount * tideSpeed + tOff);
+                let waveEdge = baseH + n * nAmp + tideOffset; 
                 vertex(x, waveEdge);
             }
             vertex(width, height);
@@ -171,7 +164,6 @@
                 let n = noise(this.pos.x * 0.005, frameCount * tideSpeed);
                 let waveEdge = height * 0.45 + n * 120 + tideOffset;
 
-                // 文字粒子依然渲染在海浪线下方
                 if (this.pos.y > waveEdge - 10) {
                     let depth = this.pos.y - waveEdge;
                     let densityThreshold = map(depth, 0, height, 1.0, 0.3, true);
