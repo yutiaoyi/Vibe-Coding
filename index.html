@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>Interactive Ocean Tide - Code Art</title>
+    <title>Interactive Ocean Tide - Deca Joins Narrative</title>
     <style>
         body {
             margin: 0;
@@ -13,43 +13,34 @@
         canvas {
             display: block;
         }
-        .ui-text {
-            position: absolute;
-            top: 10%;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80%;
-            color: #333;
-            font-family: 'Courier New', monospace;
-            text-align: center;
-            pointer-events: none;
-            z-index: 10;
-            opacity: 0.7;
-            font-size: 14px;
-        }
     </style>
 </head>
 <body>
-
-    <div class="ui-text">
-        I was then in a sort of temper indolent and struck with awe...<br>
-        一种慵懒而惊惧的心境，如潮汐般反复。
-    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <script>
         let particles = [];
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>/[]{}";
         let tideOffset = 0;
+        let tideSpeed = 0.01; 
+
+        // 5段歌词内容
+        const lyrics = [
+            { zh: "盼着望着\n但明天太远了", en: "Gazing and longing,\nBut tomorrow is too far away." },
+            { zh: "这就是我的生活\n太阳在坠落\n海浪在发愁\n不停地退后", en: "This is my life. The sun is falling,\nThe waves are grieving, retreating endlessly." },
+            { zh: "终于忘记你的时候\n你出现在我的梦里", en: "When I finally forget you,\nYou appear in my dreams." },
+            { zh: "人与蝉 蝉与狗 狗与深夜冲撞高处街灯的蛾\n所有浮生里万千的脸孔\n让我因为你们隆重", en: "Humans & cicadas, dogs & moths hitting streetlights,\nTen thousand faces in all floating lives,\nMake me solemn because of you." },
+            { zh: "人们火热 城市，何必寂寞\n我多爱你 但不因你而什么\n时光穿梭 我们不在左右只在彼此其中", en: "People are fervent, the city—why be lonely?\nI love you so much, but not because of anything,\nTime shuttles; we are within each other." }
+        ];
+        
+        let lyricIndex = 0;
+        let hasSwitched = false;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            textFont('monospace');
-            textSize(11);
+            textFont('Courier New', 'monospace');
             
-            // 【密度与范围重塑】：间距 16 保持密集感
             let spacing = 16; 
-            // 垂直范围从 -height 延伸到 height * 2.5，确保涨潮时底部不空
             for (let x = -20; x < width + 20; x += spacing) {
                 for (let y = -height; y < height * 2.5; y += spacing) {
                     let offX = random(-7, 7);
@@ -60,21 +51,28 @@
         }
 
         function draw() {
-            // 1. 底层：沙滩纹理
+            // 1. 底层沙滩
             drawBeach();
 
-            // 2. 计算潮汐波动
-            let waveCycle = sin(frameCount * 0.01); 
-            // 涨潮高度映射：保持满屏覆盖能力
+            // 2. 潮汐波动计算
+            let waveCycle = sin(frameCount * tideSpeed); 
             tideOffset = map(waveCycle, -1, 1, height * 0.15, -height * 0.65); 
 
-            // 3. 绘制深海基底
+            // 涨潮至完全覆盖时切换歌词
+            if (waveCycle > 0.95 && !hasSwitched) {
+                lyricIndex = (lyricIndex + 1) % lyrics.length;
+                hasSwitched = true;
+            }
+            if (waveCycle < 0) hasSwitched = false;
+
+            // 3. 【底层图层】绘制歌词
+            drawLyrics();
+
+            // 4. 【中间图层】绘制不透明海浪基底
             drawOceanBase();
 
-            // 4. 更新并绘制粒子 (带性能剪裁)
+            // 5. 【顶层图层】更新并绘制乱码字符
             for (let p of particles) {
-                // 只有在屏幕范围内或即将进入屏幕的粒子才进行逻辑计算
-                // currentY 是预估位置，用来做性能剪裁
                 let estY = p.originY + tideOffset;
                 if (estY > -50 && estY < height + 50) {
                     p.update();
@@ -92,13 +90,29 @@
             }
         }
 
+        function drawLyrics() {
+            textAlign(CENTER, TOP);
+            let baseY = height * 0.1;
+            
+            // 英文部分
+            fill(120, 120, 120, 180);
+            textSize(14);
+            text(lyrics[lyricIndex].en, width/2, baseY);
+            
+            // 中文部分
+            fill(51, 51, 51, 200);
+            textSize(14);
+            let enLines = lyrics[lyricIndex].en.split('\n').length;
+            text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
+        }
+
         function drawOceanBase() {
-            fill(10, 45, 90, 150); 
+            fill('#6b7e96'); // 使用不透明色码，确保完全遮挡歌词
             noStroke();
             beginShape();
             vertex(0, height);
             for (let x = 0; x <= width; x += 20) {
-                let n = noise(x * 0.005, frameCount * 0.01);
+                let n = noise(x * 0.005, frameCount * tideSpeed);
                 let waveEdge = height * 0.45 + n * 120 + tideOffset; 
                 vertex(x, waveEdge);
             }
@@ -113,11 +127,12 @@
                 this.pos = createVector(x, y);
                 this.vel = createVector(0, 0);
                 this.char = chars.charAt(floor(random(chars.length)));
-                this.baseAlpha = random(100, 230);
+                // 【深浅设置】：随机 Alpha 范围扩大，产生更明显的深浅感
+                this.baseAlpha = random(50, 255);
             }
 
             update() {
-                let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * 0.01);
+                let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * tideSpeed);
                 let currentTideY = this.originY + tideOffset + n * 30;
 
                 let mouse = createVector(mouseX, mouseY);
@@ -138,16 +153,22 @@
             }
 
             display() {
-                let n = noise(this.pos.x * 0.005, frameCount * 0.01);
+                let n = noise(this.pos.x * 0.005, frameCount * tideSpeed);
                 let waveEdge = height * 0.45 + n * 120 + tideOffset;
 
-                // 只有处于波浪线以下的粒子才绘制
                 if (this.pos.y > waveEdge - 15) {
+                    // 设置随机深浅颜色
                     fill(10, 30, 80, this.baseAlpha);
+                    textSize(11);
                     noStroke();
                     text(this.char, this.pos.x, this.pos.y);
                     
-                    // 连线逻辑
+                    // 【粗细设置】：如果 Alpha 较高（较亮的字符），重复绘制一次并轻微偏移，模拟加粗效果
+                    if (this.baseAlpha > 180) {
+                        text(this.char, this.pos.x + 0.5, this.pos.y);
+                    }
+                    
+                    // 偶尔生成的连线
                     if (random(1) > 0.985) {
                         stroke(20, 50, 100, 25);
                         strokeWeight(0.5);
