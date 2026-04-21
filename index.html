@@ -43,12 +43,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <script>
         let particles = [];
-        let beachTexture; // 新增：用于存储静态沙滩纹理
+        let beachTexture; 
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>/[]{}";
         let tideOffset = 0;
         let tideSpeed = 0.01; 
+        let currentGap = 15; // 图层之间的动态间距
         
-        // 交互开关状态
         let isInteractionEnabled = true;
 
         const lyrics = [
@@ -64,7 +64,7 @@
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            createBeachTexture(); // 新增：初始化时生成一次沙滩纹理
+            createBeachTexture(); 
             textFont('Courier New', 'monospace');
             
             let spacing = 14; 
@@ -77,7 +77,6 @@
             }
         }
 
-        // 切换交互开关的方法
         function toggleInteraction() {
             isInteractionEnabled = !isInteractionEnabled;
             let btn = document.getElementById('toggle-btn');
@@ -89,6 +88,10 @@
 
             let waveCycle = sin(frameCount * tideSpeed); 
             tideOffset = map(waveCycle, -1, 1, height * 0.15, -height * 0.65); 
+
+            // --- 新增：动态计算图层间距 ---
+            // 当水位升高（waveCycle趋向1）时，间距从10增大到45
+            currentGap = map(waveCycle, -1, 1, 10, 45);
 
             if (waveCycle > 0.95 && !hasSwitched) {
                 lyricIndex = (lyricIndex + 1) % lyrics.length;
@@ -110,7 +113,7 @@
         }
 
         function drawBeach() {
-            if (beachTexture) image(beachTexture, 0, 0); // 替换：直接绘制预生成的纹理
+            if (beachTexture) image(beachTexture, 0, 0); 
         }
 
         function drawLyrics() {
@@ -127,9 +130,7 @@
         }
 
         function getMasterInteractionOffset(x) {
-            // 如果交互关闭，直接返回 0
             if (!isInteractionEnabled) return 0;
-
             let darkBaseY = height * 0.45 + tideOffset; 
             let diffY = mouseY - darkBaseY;
             let globalShift = diffY * 0.25;
@@ -146,14 +147,19 @@
         function getHighestWaveEdge(x) {
             let mOffset = getMasterInteractionOffset(x);
 
+            // 基于动态间距计算三层边缘
+            let base_y3 = height * 0.45; // 深蓝基准
+            let base_y2 = base_y3 - currentGap; // 浅蓝基准
+            let base_y1 = base_y2 - currentGap; // 白色基准
+
             let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
-            let y1 = height * 0.42 + n1 * 140 + tideOffset + mOffset;
+            let y1 = base_y1 + n1 * 140 + tideOffset + mOffset;
 
             let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
-            let y2 = height * 0.435 + n2 * 130 + tideOffset + mOffset;
+            let y2 = base_y2 + n2 * 130 + tideOffset + mOffset;
 
             let n3 = noise(x * 0.005, frameCount * tideSpeed);
-            let y3 = height * 0.45 + n3 * 120 + tideOffset + mOffset;
+            let y3 = base_y3 + n3 * 120 + tideOffset + mOffset;
 
             return min(y1, min(y2, y3));
         }
@@ -164,14 +170,19 @@
                 offsets[x] = getMasterInteractionOffset(x);
             }
 
+            // 应用动态间距计算三层的 BaseH
+            let baseDark = height * 0.45;
+            let baseLight = baseDark - currentGap;
+            let baseWhite = baseLight - currentGap;
+
             fill(255, 255, 255, 180); 
-            drawWaveShape(height * 0.42, 0.006, 140, 500, offsets, 25);
+            drawWaveShape(baseWhite, 0.006, 140, 500, offsets, 25);
 
             fill('#8ea1b8'); 
-            drawWaveShape(height * 0.435, 0.0055, 130, 250, offsets, 12);
+            drawWaveShape(baseLight, 0.0055, 130, 250, offsets, 12);
 
             fill('#6b7e96'); 
-            drawWaveShape(height * 0.45, 0.005, 120, 0, offsets, 0);
+            drawWaveShape(baseDark, 0.005, 120, 0, offsets, 0);
         }
 
         function drawWaveShape(baseH, nScale, nAmp, tOff, offsets, jitterMag) {
@@ -219,6 +230,8 @@
 
                 if (this.pos.y > waveEdge) {
                     let depth = this.pos.y - waveEdge;
+                    
+                    // --- 恢复部分：使用平均/均匀的密度逻辑 ---
                     let densityThreshold = map(depth, 0, height, 1.0, 0.3, true);
 
                     if (this.rarity < densityThreshold) {
@@ -245,31 +258,25 @@
 
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
-            createBeachTexture(); // 新增：窗口缩放时重新生成纹理
+            createBeachTexture(); 
             particles = [];
             setup();
         }
-        // 新增函数：生成带有点点纹理和星光的沙滩
+
         function createBeachTexture() {
             beachTexture = createGraphics(width, height);
-            beachTexture.background(242, 240, 233); // 沙滩底色
+            beachTexture.background(242, 240, 233); 
             beachTexture.noStroke();
-            
-            // 绘制大量细小沙砾纹理
             for (let i = 0; i < 15000; i++) {
                 beachTexture.fill(200, 190, 170, random(30, 100));
                 beachTexture.ellipse(random(width), random(height), random(1, 2.5));
             }
-            
-            // 绘制亮白色的“星星点点”闪光
             for (let i = 0; i < 500; i++) {
                 beachTexture.fill(255, 255, 255, random(180, 255));
                 let x = random(width);
                 let y = random(height);
                 let size = random(1, 2.5);
                 beachTexture.ellipse(x, y, size, size);
-                
-                // 增加一点点光晕
                 if (random(1) > 0.9) {
                     beachTexture.fill(255, 255, 255, 50);
                     beachTexture.ellipse(x, y, size * 3, size * 3);
