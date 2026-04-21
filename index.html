@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Interactive Ocean Tide - Code Art</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f2f0e9; /* 沙滩米白色 */
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        .ui-text {
+            position: absolute;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            color: #333;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.7;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui-text">
+        I was then in a sort of temper indolent and struck with awe...<br>
+        一种慵懒而惊惧的心境，如潮汐般反复。
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script>
+        let particles = [];
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>/[]{}";
+        let tideOffset = 0;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            textFont('monospace');
+            textSize(11);
+            
+            // 初始化粒子：不再是死板网格，而是带有随机偏移的松散分布
+            let spacing = 18;
+            for (let x = -20; x < width + 20; x += spacing) {
+                for (let y = height * 0.2; y < height + 100; y += spacing) {
+                    let offX = random(-8, 8);
+                    let offY = random(-8, 8);
+                    particles.push(new Particle(x + offX, y + offY));
+                }
+            }
+        }
+
+        function draw() {
+            // 1. 底层：沙滩纹理
+            drawBeach();
+
+            // 2. 计算全局潮汐高度 (涨潮退潮)
+            // 使用 sin 函数模拟缓慢的起伏
+            tideOffset = sin(frameCount * 0.01) * 40; 
+
+            // 3. 绘制深色海浪区域的底色（带有不规则边缘）
+            drawOceanBase();
+
+            // 4. 更新并绘制字符粒子
+            for (let p of particles) {
+                p.update();
+                p.display();
+            }
+        }
+
+        // 绘制沙滩纹理层
+        function drawBeach() {
+            background(242, 240, 233); // 米白色
+            // 添加微小的沙粒感
+            noStroke();
+            fill(200, 190, 170, 30);
+            for(let i=0; i<200; i++) {
+                rect(random(width), random(height), 2, 2);
+            }
+        }
+
+        // 绘制海浪的蓝色基底，边缘使用噪声产生不规则感
+        function drawOceanBase() {
+            fill(10, 45, 90, 150); // 深蓝色背景，带透明度
+            noStroke();
+            beginShape();
+            vertex(0, height);
+            // 这里的波浪边缘算法模仿了“撕纸”或“海浪拍岸”的破碎感
+            for (let x = 0; x <= width; x += 20) {
+                let n = noise(x * 0.005, frameCount * 0.01);
+                let waveEdge = height * 0.45 + n * 120 + tideOffset; 
+                vertex(x, waveEdge);
+            }
+            vertex(width, height);
+            endShape(CLOSE);
+        }
+
+        class Particle {
+            constructor(x, y) {
+                this.originX = x;
+                this.originY = y;
+                this.pos = createVector(x, y);
+                this.vel = createVector(0, 0);
+                this.char = chars.charAt(floor(random(chars.length)));
+                this.baseAlpha = random(100, 255);
+            }
+
+            update() {
+                // 基础潮汐位置
+                let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * 0.01);
+                let currentTideY = this.originY + tideOffset + n * 30;
+
+                // 鼠标交互：排斥力
+                let mouse = createVector(mouseX, mouseY);
+                let distToMouse = p5.Vector.dist(this.pos, mouse);
+                if (distToMouse < 120) {
+                    let force = map(distToMouse, 0, 120, 8, 0);
+                    let repulsion = p5.Vector.sub(this.pos, mouse);
+                    repulsion.normalize();
+                    repulsion.mult(force);
+                    this.vel.add(repulsion);
+                }
+
+                // 回复力：回到当前的潮汐波动位置
+                let target = createVector(this.originX, currentTideY);
+                let spring = p5.Vector.sub(target, this.pos);
+                spring.mult(0.05);
+                this.vel.add(spring);
+
+                this.pos.add(this.vel);
+                this.vel.mult(0.9); // 阻尼
+            }
+
+            display() {
+                // 只显示在“海浪高度”之下的字符
+                let n = noise(this.pos.x * 0.005, frameCount * 0.01);
+                let waveEdge = height * 0.45 + n * 120 + tideOffset;
+
+                if (this.pos.y > waveEdge - 20) { // 边缘带有一点点渐变穿插
+                    // 深蓝色字符
+                    let c = color(10, 30, 80, this.baseAlpha);
+                    fill(c);
+                    noStroke();
+                    text(this.char, this.pos.x, this.pos.y);
+
+                    // 绘制松散的连接线：模仿水分子间的张力
+                    this.drawConnections(waveEdge);
+                }
+            }
+
+            drawConnections(limit) {
+                // 寻找附近的点画线，增加“代码相互连接”的感觉
+                stroke(20, 50, 100, 30);
+                strokeWeight(0.5);
+                // 仅向下方和右方寻找，减少计算量且线条更干净
+                if (random(1) > 0.95) { // 降低连线密度，增加松散感
+                    line(this.pos.x, this.pos.y, this.pos.x + 15, this.pos.y + 15);
+                }
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            particles = [];
+            setup();
+        }
+    </script>
+</body>
+</html>
