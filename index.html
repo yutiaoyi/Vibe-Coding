@@ -96,58 +96,69 @@
             text(lyrics[lyricIndex].zh, width/2, baseY + enLines * 20 + 10);
         }
 
-        // --- 修改部分：减小了交互半径和强度 ---
-        function getMouseWaveOffset(x, currentY) {
+        function getMasterInteractionOffset(x) {
+            let darkBaseY = height * 0.45 + tideOffset; 
+            let diffY = mouseY - darkBaseY;
+            let globalShift = diffY * 0.25;
             let dx = abs(x - mouseX);
-            let dy = abs(currentY - mouseY);
-            let offset = 0;
-            
-            // 将感应半径从 180 缩小到 80
-            let interactionRadius = 80; 
-            
-            if (dx < interactionRadius && dy < interactionRadius) {
-                let strengthX = cos(map(dx, 0, interactionRadius, 0, HALF_PI));
-                let strengthY = cos(map(dy, 0, interactionRadius, 0, HALF_PI));
-                // 产生一个向下的位移偏移，幅度也相应调小一点（从120调至70）
-                offset = strengthX * strengthY * 70; 
+            let interactionRadius = width * 0.5; 
+            let localShift = 0;
+            if (dx < interactionRadius) {
+                let strengthX = pow(cos(map(dx, 0, interactionRadius, 0, HALF_PI)), 2);
+                localShift = diffY * 0.75 * strengthX; 
             }
-            return offset;
+            return globalShift + localShift;
         }
 
+        // --- 核心修改：动态计算三层中的最高点（最小值） ---
         function getHighestWaveEdge(x) {
-            let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
-            let base_y1 = height * 0.42 + n1 * 140 + tideOffset;
-            let y1 = base_y1 + getMouseWaveOffset(x, base_y1);
-            
-            let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
-            let base_y2 = height * 0.435 + n2 * 130 + tideOffset;
-            let y2 = base_y2 + getMouseWaveOffset(x, base_y2);
-            
-            let n3 = noise(x * 0.005, frameCount * tideSpeed);
-            let base_y3 = height * 0.45 + n3 * 120 + tideOffset;
-            let y3 = base_y3 + getMouseWaveOffset(x, base_y3);
+            let mOffset = getMasterInteractionOffset(x);
 
+            // 计算白色层当前位置高度
+            let n1 = noise(x * 0.006, frameCount * tideSpeed + 500);
+            let y1 = height * 0.42 + n1 * 140 + tideOffset + mOffset;
+
+            // 计算浅蓝层当前位置高度
+            let n2 = noise(x * 0.0055, frameCount * tideSpeed + 250);
+            let y2 = height * 0.435 + n2 * 130 + tideOffset + mOffset;
+
+            // 计算深蓝层当前位置高度
+            let n3 = noise(x * 0.005, frameCount * tideSpeed);
+            let y3 = height * 0.45 + n3 * 120 + tideOffset + mOffset;
+
+            // 取三者中的最小值（即离屏幕顶部最近、最高的海拔）
             return min(y1, min(y2, y3));
         }
 
         function drawOceanWithTripleLayers() {
+            let offsets = [];
+            for (let x = 0; x <= width; x += 10) {
+                offsets[x] = getMasterInteractionOffset(x);
+            }
+
             fill(255, 255, 255, 180); 
-            drawWaveShape(height * 0.42, 0.006, 140, 500);
+            drawWaveShape(height * 0.42, 0.006, 140, 500, offsets, 25);
+
             fill('#8ea1b8'); 
-            drawWaveShape(height * 0.435, 0.0055, 130, 250);
+            drawWaveShape(height * 0.435, 0.0055, 130, 250, offsets, 12);
+
             fill('#6b7e96'); 
-            drawWaveShape(height * 0.45, 0.005, 120, 0);
+            drawWaveShape(height * 0.45, 0.005, 120, 0, offsets, 0);
         }
 
-        function drawWaveShape(baseH, nScale, nAmp, tOff) {
+        function drawWaveShape(baseH, nScale, nAmp, tOff, offsets, jitterMag) {
             noStroke();
             beginShape();
             vertex(0, height);
-            for (let x = 0; x <= width; x += 15) {
+            for (let x = 0; x <= width; x += 10) {
                 let n = noise(x * nScale, frameCount * tideSpeed + tOff);
                 let base_y = baseH + n * nAmp + tideOffset;
-                let final_y = base_y + getMouseWaveOffset(x, base_y);
-                vertex(x, final_y);
+                let mOffset = offsets[x] || 0;
+                let jitter = 0;
+                if (jitterMag > 0) {
+                    jitter = (noise(x * 0.1, frameCount * 0.06 + tOff) - 0.5) * jitterMag;
+                }
+                vertex(x, base_y + mOffset + jitter);
             }
             vertex(width, height);
             endShape(CLOSE);
@@ -167,27 +178,25 @@
             update() {
                 let n = noise(this.originX * 0.005, this.originY * 0.005, frameCount * tideSpeed);
                 let currentTideY = this.originY + tideOffset + n * 30;
-
                 let target = createVector(this.originX, currentTideY);
                 let spring = p5.Vector.sub(target, this.pos);
                 spring.mult(0.05);
                 this.vel.add(spring);
-
                 this.pos.add(this.vel);
                 this.vel.mult(0.9);
             }
 
             display() {
+                // 实时获取三层海浪合并后的最高边缘
                 let waveEdge = getHighestWaveEdge(this.pos.x);
 
-                if (this.pos.y > waveEdge - 15) {
+                if (this.pos.y > waveEdge) {
                     let depth = this.pos.y - waveEdge;
                     let densityThreshold = map(depth, 0, height, 1.0, 0.3, true);
 
                     if (this.rarity < densityThreshold) {
                         let colorWhite = color(255, 255, 255);
                         let colorBlue = color(10, 30, 80);
-                        
                         let transitionDist = 25; 
                         let lerpAmt = map(depth, 0, transitionDist, 0, 1, true);
                         
@@ -201,15 +210,6 @@
                         
                         if (this.baseAlpha > 180) {
                             text(this.char, this.pos.x + 0.5, this.pos.y);
-                        }
-                        
-                        if (random(1) > 0.985 && depth < height * 0.4) {
-                            let strokeWhite = color(255, 255, 255, 40);
-                            let strokeBlue = color(20, 50, 100, 30);
-                            let finalStroke = lerpColor(strokeWhite, strokeBlue, lerpAmt);
-                            stroke(finalStroke);
-                            strokeWeight(0.5);
-                            line(this.pos.x, this.pos.y, this.pos.x + 15, this.pos.y + 15);
                         }
                     }
                 }
