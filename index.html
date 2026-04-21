@@ -43,6 +43,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <script>
         let particles = [];
+        let beachTexture; // 新增：用于存储静态沙滩纹理
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>/[]{}";
         let tideOffset = 0;
         let tideSpeed = 0.01; 
@@ -63,6 +64,7 @@
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
+            createBeachTexture(); // 新增：初始化时生成一次沙滩纹理
             textFont('Courier New', 'monospace');
             
             let spacing = 14; 
@@ -108,12 +110,7 @@
         }
 
         function drawBeach() {
-            background(242, 240, 233); 
-            noStroke();
-            fill(200, 190, 170, 30);
-            for(let i=0; i<150; i++) {
-                rect(random(width), random(height), 2, 2);
-            }
+            if (beachTexture) image(beachTexture, 0, 0); // 替换：直接绘制预生成的纹理
         }
 
         function drawLyrics() {
@@ -248,8 +245,36 @@
 
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
+            createBeachTexture(); // 新增：窗口缩放时重新生成纹理
             particles = [];
             setup();
+        }
+        // 新增函数：生成带有点点纹理和星光的沙滩
+        function createBeachTexture() {
+            beachTexture = createGraphics(width, height);
+            beachTexture.background(242, 240, 233); // 沙滩底色
+            beachTexture.noStroke();
+            
+            // 绘制大量细小沙砾纹理
+            for (let i = 0; i < 15000; i++) {
+                beachTexture.fill(200, 190, 170, random(30, 100));
+                beachTexture.ellipse(random(width), random(height), random(1, 2.5));
+            }
+            
+            // 绘制亮白色的“星星点点”闪光
+            for (let i = 0; i < 500; i++) {
+                beachTexture.fill(255, 255, 255, random(180, 255));
+                let x = random(width);
+                let y = random(height);
+                let size = random(1, 2.5);
+                beachTexture.ellipse(x, y, size, size);
+                
+                // 增加一点点光晕
+                if (random(1) > 0.9) {
+                    beachTexture.fill(255, 255, 255, 50);
+                    beachTexture.ellipse(x, y, size * 3, size * 3);
+                }
+            }
         }
     </script>
 </body>
