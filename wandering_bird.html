@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Wandering Bird, Wandering People.</title>
+    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #e6e2d3; cursor: none; }
+        canvas { display: block; }
+        #toggle-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            font-family: 'Special Elite', serif;
+            font-size: 14px;
+            color: rgba(44, 44, 44, 0.4);
+            cursor: pointer;
+            border-bottom: 1px solid rgba(44, 44, 44, 0.2);
+            padding-bottom: 2px;
+            user-select: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="toggle-btn" onclick="toggleInteraction()">MODE: OBSERVE</div>
+
+<script>
+let chars = [];
+let bird, birdVel, birdTarget;
+let birdHistory = []; 
+let paperTexture; 
+
+// 交互变量
+let interactionActive = false; 
+let ripples = []; 
+let lastRipplePos; 
+let pressStartTime = 0; 
+let isPressing = false;
+let chargeRadius = 0; 
+
+// Bird boost (EXPLORE mode click)
+const BIRD_BOOST_DURATION_MS = 1100;
+const BIRD_BOOST_EXTRA_FACTOR = 1.0; // +100%
+let birdBoostUntilMs = 0;
+
+const fullText = "There are desks with wells for ink here. But here I am nobody. I have no face. This great company, all dressed in brown serge, has robbed me of my identity. We are all callous, unfriended. I will seek out a face, a composed, a monumental face, and will endow it with omniscience, and wear it under my dress like a talisman and then (I promise this) I will find some dingle in a wood where I can display my assortment of curious treasures. ";
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    createPaperTexture();
+    textFont('Special Elite'); 
+    textStyle(BOLD); 
+    textSize(16); 
+
+    let xSpace = 14, ySpace = 20; 
+    for (let y = ySpace; y < height; y += ySpace) {
+        for (let x = xSpace; x < width; x += xSpace) {
+            chars.push(new RetroChar(x, y, fullText[chars.length % fullText.length]));
+        }
+    }
+
+    bird = createVector(width/2, height/2);
+    birdVel = createVector(0,0);
+    birdTarget = createVector(random(width), random(height));
+    lastRipplePos = createVector(0, 0);
+}
+
+function toggleInteraction() {
+    interactionActive = !interactionActive;
+    let btn = document.getElementById('toggle-btn');
+    btn.innerText = interactionActive ? "MODE: EXPLORE" : "MODE: OBSERVE";
+}
+
+function draw() {
+    background(230, 226, 211); 
+    image(paperTexture, 0, 0);
+
+    updateBird();
+    handleInteractionLogic(); 
+    updateRipples();
+
+    noStroke();
+    chars.forEach(c => {
+        c.interact(birdHistory, ripples); 
+        c.show();
+    });
+
+    drawRetroBird();
+    drawVignette();
+    drawCustomCursor();
+}
+
+function updateBird() {
+    let isMouseActive = mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height;
+    if (interactionActive && isMouseActive) {
+        birdTarget.set(mouseX, mouseY);
+    } else {
+        if (dist(bird.x, bird.y, birdTarget.x, birdTarget.y) < 60) {
+            birdTarget = createVector(random(50, width-50), random(50, height-50));
+        }
+    }
+    let boostRemaining = birdBoostUntilMs - millis();
+    let boostPct = interactionActive ? constrain(boostRemaining / BIRD_BOOST_DURATION_MS, 0, 1) : 0;
+    let boostFactor = 1 + (BIRD_BOOST_EXTRA_FACTOR * boostPct);
+
+    let steer = p5.Vector.sub(birdTarget, bird).setMag((interactionActive ? 0.18 : 0.12) * boostFactor);
+    birdVel.add(steer).limit((interactionActive ? 3.5 : 2.8) * boostFactor);
+    bird.add(birdVel);
+
+    birdHistory.unshift(bird.copy());
+    if (birdHistory.length > 15) birdHistory.pop();
+}
+
+function handleInteractionLogic() {
+    if (!interactionActive || !mouseIsPressed) {
+        isPressing = false;
+        return;
+    }
+    
+    if (!isPressing) {
+        pressStartTime = millis();
+        isPressing = true;
+        lastRipplePos.set(mouseX, mouseY);
+    }
+
+    let currentMouse = createVector(mouseX, mouseY);
+    let d = dist(currentMouse.x, currentMouse.y, lastRipplePos.x, lastRipplePos.y);
+    
+    if (d > 25) { 
+        spawnRipple(mouseX, mouseY, 100, 0.8, 4); 
+        lastRipplePos.set(currentMouse);
+        pressStartTime = millis(); 
+    } else {
+        let duration = millis() - pressStartTime;
+        chargeRadius = map(min(duration, 1200), 0, 1200, 0, 250);
+    }
+}
+
+function mouseReleased() {
+    if (!interactionActive || !isPressing) return;
+    let duration = millis() - pressStartTime;
+    if (duration > 100) {
+        let finalR = map(min(duration, 1200), 0, 1200, 100, 300);
+        spawnRipple(mouseX, mouseY, finalR, map(finalR, 100, 300, 1.5, 3.0), 6);
+    }
+    isPressing = false;
+    chargeRadius = 0;
+}
+
+function mousePressed() {
+    if (!interactionActive) return;
+    birdBoostUntilMs = max(birdBoostUntilMs, millis() + BIRD_BOOST_DURATION_MS);
+}
+
+function spawnRipple(x, y, maxR, strength, startVel) {
+    ripples.push({
+        pos: createVector(x, y),
+        r: 0,
+        vel: startVel,      
+        maxR: maxR,
+        strength: strength,
+        life: 1.0           
+    });
+}
+
+function updateRipples() {
+    for (let i = ripples.length - 1; i >= 0; i--) {
+        let r = ripples[i];
+        r.vel *= 0.97; 
+        r.r += r.vel + 1.5; 
+        r.strength *= 0.98;
+        if (r.r > r.maxR || r.strength < 0.1) {
+            ripples.splice(i, 1);
+        }
+    }
+}
+
+// --- 修改后的 drawCustomCursor 函数 ---
+function drawCustomCursor() {
+    // 只要鼠标在画布范围内就绘制圆环，无论是否处于 interactionActive
+    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+        push();
+        noFill();
+        stroke(44, 44, 44, 100); // 基础圆环透明度
+        strokeWeight(1);
+        ellipse(mouseX, mouseY, 12, 12);
+        
+        // 蓄力环效果依然只在互动模式（EXPLORE）下生效
+        if (interactionActive && isPressing && chargeRadius > 10) {
+            stroke(44, 44, 44, 40);
+            push();
+            translate(mouseX, mouseY);
+            rotate(frameCount * 0.02);
+            drawingContext.setLineDash([4, 4]);
+            ellipse(0, 0, chargeRadius * 2, chargeRadius * 2);
+            drawingContext.setLineDash([]);
+            pop();
+        }
+        pop();
+    }
+}
+
+class RetroChar {
+    constructor(x, y, t) {
+        this.base = createVector(x, y);
+        this.pos = createVector(x, y);
+        this.txt = t;
+        this.activeInk = 0;    
+        this.delayTimer = 0;   
+        this.trait = floor(random(4)); 
+        this.currentScale = 1;
+        this.currentOpacity = 255;
+        this.noiseSeed = random(1000);
+        this.chaosForce = p5.Vector.random2D().mult(random(15, 40)); 
+        this.recoverySpeed = 0.04; 
+    }
+
+    interact(history, currentRipples) {
+        let maxImpact = 0;
+        let impactVector = createVector(0, 0);
+        let byBird = false;
+        let byRipple = false;
+
+        for (let i = 0; i < history.length; i++) {
+            let p = history[i];
+            let d = dist(this.base.x, this.base.y, p.x, p.y);
+            let radius = map(i, 0, history.length, 120, 40); 
+            if (d < radius) {
+                let pct = map(d, 0, radius, 1, 0);
+                let strength = pct * map(i, 0, history.length, 1, 0.3);
+                if (strength > maxImpact) {
+                    maxImpact = strength;
+                    impactVector = p5.Vector.sub(this.base, p);
+                    byBird = true;
+                }
+            }
+        }
+
+        for (let r of currentRipples) {
+            let d = dist(this.base.x, this.base.y, r.pos.x, r.pos.y);
+            let waveThickness = 50;
+            if (d < r.r && d > r.r - waveThickness) {
+                let wavePct = map(d, r.r - waveThickness, r.r, 0, 1);
+                let ripImpact = r.strength * sin(wavePct * PI / 2); 
+                
+                if (ripImpact > maxImpact) {
+                    maxImpact = ripImpact;
+                    impactVector = p5.Vector.sub(this.base, r.pos);
+                    byRipple = true;
+                }
+            }
+        }
+
+        if (maxImpact > 0) {
+            this.activeInk = lerp(this.activeInk, 1.0, 0.15);
+            if (byRipple && !byBird) {
+                this.delayTimer = 40; 
+                this.recoverySpeed = 0.15; 
+            } else {
+                this.delayTimer = 100; 
+                this.recoverySpeed = 0.04; 
+            }
+            
+            let repulsion = impactVector.copy().setMag(maxImpact * 30);
+            let flutter = this.chaosForce.copy().mult(maxImpact * 0.6);
+            let nX = noise(this.noiseSeed, frameCount * 0.08) * 10 - 5;
+            let nY = noise(this.noiseSeed + 500, frameCount * 0.08) * 10 - 5;
+            let target = p5.Vector.add(this.base, repulsion).add(flutter).add(createVector(nX * maxImpact, nY * maxImpact));
+
+            if (this.trait === 1) this.currentScale = lerp(this.currentScale, 1.25, 0.1);
+            else if (this.trait === 3) {
+                this.currentScale = lerp(this.currentScale, 0.6, 0.15); 
+                this.currentOpacity = lerp(this.currentOpacity, 80, 0.15); 
+            }
+            this.pos.lerp(target, 0.12);
+        } else {
+            if (this.delayTimer > 0) {
+                this.delayTimer--;
+            } else {
+                this.activeInk = lerp(this.activeInk, 0, this.recoverySpeed);
+            }
+            this.pos.lerp(this.base, 0.06);
+            this.currentScale = lerp(this.currentScale, 1, 0.08);
+            this.currentOpacity = lerp(this.currentOpacity, 255, 0.08);
+        }
+    }
+
+    show() {
+        let alpha = lerp(120, 255, this.activeInk) * (this.currentOpacity / 255);
+        push();
+        translate(this.pos.x, this.pos.y);
+        scale(this.currentScale);
+        if (this.activeInk > 0.95) {
+            fill(44, 44, 44, 15 * this.activeInk);
+            text(this.txt, random(-1, 1), random(-1, 1));
+        }
+        fill(44, 44, 44, alpha);
+        textAlign(CENTER, CENTER);
+        text(this.txt, random(-0.2, 0.2), random(-0.2, 0.2));
+        pop();
+    }
+}
+
+function createPaperTexture() {
+    paperTexture = createGraphics(width, height);
+    paperTexture.noStroke();
+    for (let i = 0; i < 20000; i++) {
+        let x = random(width);
+        let y = random(height);
+        let n = noise(x * 0.01, y * 0.01);
+        paperTexture.fill(150, 140, 100, map(n, 0, 1, 10, 40));
+        paperTexture.ellipse(x, y, random(1, 2));
+    }
+}
+
+function drawRetroBird() {
+    push();
+    translate(bird.x, bird.y);
+    rotate(birdVel.heading());
+    noFill();
+    stroke(44, 44, 44, 180);
+    strokeWeight(1.8);
+    let flap = sin(frameCount * 0.15) * 7;
+    for(let i=0; i<2; i++) {
+        let offset = i * 0.8;
+        beginShape();
+        curveVertex(-15 + offset, -flap + random(-0.5, 0.5));
+        curveVertex(-15 + offset, -flap);
+        curveVertex(0, 0);
+        curveVertex(-15 + offset, flap);
+        curveVertex(-15 + offset, flap + random(-0.5, 0.5));
+        endShape();
+    }
+    fill(44, 44, 44, 200);
+    noStroke();
+    ellipse(2, 0, 3, 2);
+    pop();
+}
+
+function drawVignette() {
+    noFill();
+    for (let r = 0; r < 100; r+=2) {
+        stroke(100, 90, 70, map(r, 0, 100, 0, 8));
+        rect(r, r, width - r * 2, height - r * 2, 50);
+    }
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    createPaperTexture();
+}
+</script>
+</body>
+</html>
