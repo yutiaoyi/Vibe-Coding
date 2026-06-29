@@ -1,0 +1,3415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>温暖可爱资产画册（手绘风）</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #f6efe2;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // =========================
+      // 手绘风工具（移植自 shadow-town.html 的精简版）
+      // =========================
+      const STYLE = {
+        bg: [248, 238, 220],
+        ink: [60, 40, 30],
+        inkSoft: [90, 70, 55],
+        card: [255, 255, 255, 220],
+        cardStroke: [255, 255, 255, 140],
+        strokeW: 2.2,
+        jitter: 1.2,
+        polySeg: 3,
+      };
+
+      function lerpArr(a, b, t) {
+        return a.map((v, i) => v + (b[i] - v) * t);
+      }
+
+      function subdivideLine(x1, y1, x2, y2, segments = 3, jitter = 1.2, extend = 1.5, dynamic = false) {
+        const pts = [];
+        const dx = x2 - x1,
+          dy = y2 - y1;
+        const len = sqrt(dx * dx + dy * dy);
+        if (len === 0) return [x1, y1, x2, y2];
+        const ux = dx / len,
+          uy = dy / len;
+        const startX = x1 - ux * extend,
+          startY = y1 - uy * extend;
+        const endX = x2 + ux * extend,
+          endY = y2 + uy * extend;
+        for (let i = 0; i <= segments; i++) {
+          const t = i / segments;
+          let x = lerp(startX, endX, t);
+          let y = lerp(startY, endY, t);
+          if (i > 0 && i < segments) {
+            if (dynamic) {
+              x += (noise(x * 0.02, y * 0.02, frameCount * 0.01) - 0.5) * 2 * jitter;
+              y += (noise(x * 0.02 + 100, y * 0.02 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+            } else {
+              x += random(-jitter, jitter);
+              y += random(-jitter, jitter);
+            }
+          }
+          pts.push(x, y);
+        }
+        return pts;
+      }
+
+      function subdividePolygon(vertices, segments = 3, jitter = 1.2, dynamic = false) {
+        const pts = [];
+        for (let i = 0; i < vertices.length; i++) {
+          const p1 = vertices[i];
+          const p2 = vertices[(i + 1) % vertices.length];
+          for (let j = 0; j < segments; j++) {
+            const t = j / segments;
+            let x = lerp(p1.x, p2.x, t);
+            let y = lerp(p1.y, p2.y, t);
+            if (j > 0) {
+              if (dynamic) {
+                x += (noise(x * 0.02, y * 0.02, frameCount * 0.01) - 0.5) * 2 * jitter;
+                y += (noise(x * 0.02 + 100, y * 0.02 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+              } else {
+                x += random(-jitter, jitter);
+                y += random(-jitter, jitter);
+              }
+            }
+            pts.push(x, y);
+          }
+        }
+        return pts;
+      }
+
+      function drawSketchyPoly(pts, strokeCol, fillCol, weight = STYLE.strokeW) {
+        if (fillCol) fill(...fillCol);
+        else noFill();
+        if (strokeCol) {
+          stroke(...strokeCol);
+          strokeWeight(weight);
+          strokeJoin(ROUND);
+          strokeCap(ROUND);
+        } else noStroke();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape(CLOSE);
+      }
+
+      function drawSketchyLineSegments(pts, strokeCol, weight = STYLE.strokeW) {
+        if (strokeCol) {
+          stroke(...strokeCol);
+          strokeWeight(weight);
+          strokeJoin(ROUND);
+          strokeCap(ROUND);
+        } else noStroke();
+        noFill();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape();
+      }
+
+      function skLine(x1, y1, x2, y2, w = STYLE.strokeW, j = STYLE.jitter) {
+        drawSketchyLineSegments(subdivideLine(x1, y1, x2, y2, 3, j, 1.2), STYLE.ink, w);
+      }
+
+      function skPoly(points, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW, seg = STYLE.polySeg, j = STYLE.jitter) {
+        drawSketchyPoly(subdividePolygon(points, seg, j), strokeCol, fillCol, w);
+      }
+
+      function skEllipse(x, y, rx, ry, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW) {
+        const pts = [];
+        const n = 18;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * TWO_PI;
+          const j = (noise(i * 0.3, rx * 0.02, ry * 0.02) - 0.5) * STYLE.jitter;
+          pts.push({ x: x + cos(a) * (rx + j), y: y + sin(a) * (ry + j) });
+        }
+        skPoly(pts, fillCol, strokeCol, w, 2, 0.8);
+      }
+
+      function cuteFace(x, y, s, mood = 0) {
+        // mood: -1 sad, 0 neutral, 1 happy
+        const eyeY = y - 2 * s;
+        noStroke();
+        fill(40, 30, 25, 230);
+        ellipse(x - 5 * s, eyeY, 2.4 * s, 3.2 * s);
+        ellipse(x + 5 * s, eyeY, 2.4 * s, 3.2 * s);
+        fill(255, 170, 170, 120);
+        ellipse(x - 8 * s, y + 2 * s, 5.2 * s, 3.6 * s);
+        ellipse(x + 8 * s, y + 2 * s, 5.2 * s, 3.6 * s);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4 * s);
+        noFill();
+        const mY = y + 6 * s;
+        if (mood >= 1) arc(x, mY, 10 * s, 7 * s, 0, PI);
+        else if (mood <= -1) arc(x, mY + 4 * s, 10 * s, 7 * s, PI, TWO_PI);
+        else line(x - 4.5 * s, mY, x + 4.5 * s, mY);
+      }
+
+      function ribbonBow(x, y, s, col) {
+        skEllipse(x, y, 3.2 * s, 2.2 * s, col, STYLE.ink, 1.6);
+        skEllipse(x - 4.2 * s, y, 4.2 * s, 2.8 * s, col, STYLE.ink, 1.6);
+        skEllipse(x + 4.2 * s, y, 4.2 * s, 2.8 * s, col, STYLE.ink, 1.6);
+      }
+
+      // =========================
+      // 资产绘制（40 个）
+      // 坐标约定：以 (0,0) 为中心，建议绘制范围 ~[-30..30]
+      // =========================
+      const PAL = {
+        cream: [255, 248, 235],
+        cocoa: [170, 120, 95],
+        caramel: [232, 180, 95],
+        honey: [245, 205, 110],
+        blush: [255, 190, 190],
+        sky: [190, 220, 245],
+        mint: [170, 215, 190],
+        leaf: [120, 165, 110],
+        red: [210, 95, 80],
+        pink: [245, 160, 175],
+        blue: [120, 165, 215],
+        gray: [160, 165, 175],
+      };
+
+      function drawSheep({ s, hovered }) {
+        skEllipse(0, 6 * s, 20 * s, 14 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        for (let i = 0; i < 6; i++) skEllipse((-14 + i * 6) * s, (i % 2 ? 0 : -2) * s, 8 * s, 6 * s, PAL.cream, null, 0);
+        skEllipse(0, 8 * s, 10 * s, 8 * s, PAL.cocoa, STYLE.ink, 2.0);
+        cuteFace(0, 10 * s, 0.55 * s, 1);
+        skLine(-10 * s, 16 * s, -10 * s, 22 * s, 2.8, 0.8);
+        skLine(10 * s, 16 * s, 10 * s, 22 * s, 2.8, 0.8);
+      }
+
+      function drawPuppy({ s, hovered }) {
+        skEllipse(0, 6 * s, 18 * s, 14 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-10 * s, 2 * s, 8 * s, 10 * s, PAL.cocoa, STYLE.ink, 2.0);
+        skEllipse(10 * s, 2 * s, 8 * s, 10 * s, PAL.cocoa, STYLE.ink, 2.0);
+        skEllipse(0, 10 * s, 11 * s, 9 * s, PAL.honey, STYLE.ink, 2.0);
+        cuteFace(0, 11 * s, 0.6 * s, 1);
+        noStroke();
+        fill(220, 90, 110, 200);
+        ellipse(0, 16 * s, 5 * s, 3.2 * s);
+      }
+
+      function drawKitty({ s, hovered }) {
+        skEllipse(0, 6 * s, 18 * s, 14 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 2 * s },
+            { x: -2 * s, y: -6 * s },
+            { x: -1 * s, y: 4 * s },
+          ],
+          PAL.cream
+        );
+        skPoly(
+          [
+            { x: 10 * s, y: 2 * s },
+            { x: 2 * s, y: -6 * s },
+            { x: 1 * s, y: 4 * s },
+          ],
+          PAL.cream
+        );
+        cuteFace(0, 10 * s, 0.6 * s, 0);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.2);
+        for (let i = -1; i <= 1; i++) {
+          skLine(-6 * s, (12 + i * 2) * s, -16 * s, (10 + i * 2) * s, 1.6, 0.6);
+          skLine(6 * s, (12 + i * 2) * s, 16 * s, (10 + i * 2) * s, 1.6, 0.6);
+        }
+      }
+
+      function drawBunny({ s, hovered }) {
+        skEllipse(0, 8 * s, 16 * s, 12 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-6 * s, -4 * s, 5 * s, 14 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(6 * s, -4 * s, 5 * s, 14 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(-6 * s, -3 * s, 2.2 * s, 10 * s, PAL.blush, null, 0);
+        skEllipse(6 * s, -3 * s, 2.2 * s, 10 * s, PAL.blush, null, 0);
+        cuteFace(0, 11 * s, 0.55 * s, 1);
+        skPoly(
+          [
+            { x: 14 * s, y: 16 * s },
+            { x: 20 * s, y: 12 * s },
+            { x: 22 * s, y: 16 * s },
+            { x: 16 * s, y: 20 * s },
+          ],
+          PAL.caramel
+        );
+        skLine(16 * s, 20 * s, 18 * s, 26 * s, 2.0, 0.8);
+        skLine(20 * s, 20 * s, 22 * s, 26 * s, 2.0, 0.8);
+      }
+
+      function drawDuckling({ s, hovered }) {
+        skEllipse(0, 8 * s, 18 * s, 12 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-7 * s, 2 * s, 10 * s, 8 * s, PAL.honey, STYLE.ink, 2.0);
+        cuteFace(0, 10 * s, 0.55 * s, 1);
+        skPoly(
+          [
+            { x: -6 * s, y: 14 * s },
+            { x: 6 * s, y: 14 * s },
+            { x: 0 * s, y: 18 * s },
+          ],
+          [245, 150, 80]
+        );
+        skLine(-6 * s, 18 * s, -12 * s, 24 * s, 2.0, 0.8);
+        skLine(6 * s, 18 * s, 12 * s, 24 * s, 2.0, 0.8);
+      }
+
+      function drawHedgehog({ s, hovered }) {
+        skEllipse(0, 10 * s, 18 * s, 12 * s, PAL.cocoa, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 12 * s, 12 * s, 9 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 13 * s, 0.55 * s, 1);
+        for (let i = 0; i < 10; i++) {
+          const a = map(i, 0, 9, -PI * 0.9, -PI * 0.1);
+          skLine(cos(a) * 10 * s, 6 * s + sin(a) * 6 * s, cos(a) * 15 * s, 2 * s + sin(a) * 10 * s, 1.8, 0.6);
+        }
+      }
+
+      function drawBear({ s, hovered }) {
+        skEllipse(0, 8 * s, 18 * s, 14 * s, PAL.cocoa, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-10 * s, 0 * s, 5 * s, 5 * s, PAL.cocoa, STYLE.ink, 2.0);
+        skEllipse(10 * s, 0 * s, 5 * s, 5 * s, PAL.cocoa, STYLE.ink, 2.0);
+        skEllipse(0, 12 * s, 9 * s, 7 * s, PAL.caramel, STYLE.ink, 2.0);
+        cuteFace(0, 12.5 * s, 0.55 * s, 1);
+        skPoly(
+          [
+            { x: -7 * s, y: 18 * s },
+            { x: 7 * s, y: 18 * s },
+            { x: 5 * s, y: 26 * s },
+            { x: -5 * s, y: 26 * s },
+          ],
+          PAL.blue
+        );
+      }
+
+      function drawFox({ s, hovered }) {
+        skEllipse(0, 8 * s, 18 * s, 14 * s, PAL.red, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 4 * s },
+            { x: -2 * s, y: -6 * s },
+            { x: -1 * s, y: 5 * s },
+          ],
+          PAL.red
+        );
+        skPoly(
+          [
+            { x: 10 * s, y: 4 * s },
+            { x: 2 * s, y: -6 * s },
+            { x: 1 * s, y: 5 * s },
+          ],
+          PAL.red
+        );
+        skEllipse(0, 12 * s, 12 * s, 9 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 13 * s, 0.55 * s, 1);
+        skEllipse(18 * s, 16 * s, 12 * s, 8 * s, PAL.red, STYLE.ink, 2.0);
+        skEllipse(22 * s, 16 * s, 6 * s, 5 * s, PAL.cream, STYLE.ink, 1.6);
+      }
+
+      function drawPenguin({ s, hovered }) {
+        skEllipse(0, 10 * s, 16 * s, 18 * s, [60, 70, 90], STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 14 * s, 11 * s, 13 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 10.5 * s, 0.55 * s, 1);
+        skPoly(
+          [
+            { x: -3 * s, y: 13 * s },
+            { x: 3 * s, y: 13 * s },
+            { x: 0 * s, y: 16 * s },
+          ],
+          [245, 150, 80]
+        );
+        skPoly(
+          [
+            { x: -14 * s, y: 10 * s },
+            { x: -6 * s, y: 12 * s },
+            { x: -12 * s, y: 18 * s },
+          ],
+          PAL.blue
+        );
+        skPoly(
+          [
+            { x: 14 * s, y: 10 * s },
+            { x: 6 * s, y: 12 * s },
+            { x: 12 * s, y: 18 * s },
+          ],
+          PAL.blue
+        );
+      }
+
+      function drawBird({ s, hovered }) {
+        skEllipse(0, 10 * s, 16 * s, 12 * s, PAL.sky, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-4 * s, 8 * s, 10 * s, 8 * s, PAL.blue, STYLE.ink, 2.0);
+        cuteFace(0, 10 * s, 0.55 * s, 1);
+        skPoly(
+          [
+            { x: 6 * s, y: 12 * s },
+            { x: 14 * s, y: 10 * s },
+            { x: 6 * s, y: 16 * s },
+          ],
+          [245, 150, 80]
+        );
+        skLine(-4 * s, 16 * s, -8 * s, 22 * s, 1.8, 0.7);
+        skLine(2 * s, 16 * s, -2 * s, 22 * s, 1.8, 0.7);
+      }
+
+      function drawSnail({ s, hovered }) {
+        skEllipse(-4 * s, 16 * s, 18 * s, 7 * s, PAL.mint, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(6 * s, 10 * s, 11 * s, 11 * s, PAL.caramel, STYLE.ink, 2.0);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(2);
+        noFill();
+        arc(6 * s, 10 * s, 10 * s, 10 * s, 0, TWO_PI);
+        arc(6 * s, 10 * s, 6 * s, 6 * s, 0, TWO_PI);
+        skLine(-12 * s, 12 * s, -14 * s, 6 * s, 1.6, 0.6);
+        skLine(-6 * s, 12 * s, -4 * s, 6 * s, 1.6, 0.6);
+        noStroke();
+        fill(40, 30, 25, 230);
+        ellipse(-14 * s, 6 * s, 2.2 * s, 2.2 * s);
+        ellipse(-4 * s, 6 * s, 2.2 * s, 2.2 * s);
+      }
+
+      function drawCaterpillar({ s, hovered }) {
+        const col = PAL.leaf;
+        for (let i = 0; i < 5; i++) skEllipse((-10 + i * 5) * s, 14 * s, 7 * s, 6 * s, col, STYLE.ink, hovered ? 2.6 : 2.0);
+        skEllipse(-12 * s, 12 * s, 8 * s, 8 * s, lerpArr(col, PAL.mint, 0.3), STYLE.ink, 2.0);
+        cuteFace(-12 * s, 12 * s, 0.45 * s, 1);
+        skLine(-16 * s, 6 * s, -18 * s, 2 * s, 1.4, 0.5);
+        skLine(-8 * s, 6 * s, -6 * s, 2 * s, 1.4, 0.5);
+      }
+
+      function drawPottedPlant({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 18 * s },
+            { x: 12 * s, y: 18 * s },
+            { x: 9 * s, y: 30 * s },
+            { x: -9 * s, y: 30 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -8 * s, y: 10 * s },
+            { x: -2 * s, y: 0 * s },
+            { x: 2 * s, y: 10 * s },
+            { x: 0 * s, y: 18 * s },
+          ],
+          PAL.leaf
+        );
+        skPoly(
+          [
+            { x: 2 * s, y: 10 * s },
+            { x: 8 * s, y: 0 * s },
+            { x: 12 * s, y: 10 * s },
+            { x: 4 * s, y: 18 * s },
+          ],
+          lerpArr(PAL.leaf, PAL.mint, 0.25)
+        );
+        cuteFace(0, 24 * s, 0.4 * s, 1);
+      }
+
+      function drawMushroomHut({ s, hovered }) {
+        skEllipse(0, 10 * s, 20 * s, 12 * s, PAL.red, STYLE.ink, hovered ? 2.8 : 2.2);
+        for (let i = 0; i < 4; i++) skEllipse((-10 + i * 7) * s, (8 + (i % 2) * 2) * s, 3.5 * s, 3.2 * s, PAL.cream, null, 0);
+        skPoly(
+          [
+            { x: -8 * s, y: 12 * s },
+            { x: 8 * s, y: 12 * s },
+            { x: 10 * s, y: 28 * s },
+            { x: -10 * s, y: 28 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: -4 * s, y: 18 * s },
+            { x: 4 * s, y: 18 * s },
+            { x: 4 * s, y: 28 * s },
+            { x: -4 * s, y: 28 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      function drawGiftBox({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 12 * s },
+            { x: 14 * s, y: 12 * s },
+            { x: 14 * s, y: 30 * s },
+            { x: -14 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -2 * s, y: 12 * s },
+            { x: 2 * s, y: 12 * s },
+            { x: 2 * s, y: 30 * s },
+            { x: -2 * s, y: 30 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+        skPoly(
+          [
+            { x: -14 * s, y: 20 * s },
+            { x: 14 * s, y: 20 * s },
+            { x: 14 * s, y: 24 * s },
+            { x: -14 * s, y: 24 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+        ribbonBow(0, 10 * s, 1.2 * s, PAL.pink);
+      }
+
+      function drawHotAirBalloon({ s, hovered }) {
+        skEllipse(0, 6 * s, 16 * s, 20 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        for (let i = -1; i <= 1; i++) {
+          const cx = i * 3.2 * s;
+          const hw = 0.9 * s;
+          skPoly(
+            [
+              { x: cx - hw, y: 2 * s },
+              { x: cx + hw, y: 2 * s },
+              { x: cx + hw, y: 10.5 * s },
+              { x: cx - hw, y: 10.5 * s },
+            ],
+            i === 0 ? PAL.cream : PAL.honey,
+            null,
+            0
+          );
+        }
+        skLine(-6 * s, 16 * s, -8 * s, 26 * s, 1.6, 0.6);
+        skLine(6 * s, 16 * s, 8 * s, 26 * s, 1.6, 0.6);
+        skPoly(
+          [
+            { x: -8 * s, y: 26 * s },
+            { x: 8 * s, y: 26 * s },
+            { x: 6 * s, y: 34 * s },
+            { x: -6 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          2.0
+        );
+      }
+
+      function drawKite({ s, hovered }) {
+        skPoly(
+          [
+            { x: 0 * s, y: 2 * s },
+            { x: 14 * s, y: 14 * s },
+            { x: 0 * s, y: 26 * s },
+            { x: -14 * s, y: 14 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -3 * s, y: 11 * s },
+            { x: 3 * s, y: 11 * s },
+            { x: 3 * s, y: 17 * s },
+            { x: -3 * s, y: 17 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+        skLine(0, 26 * s, 0, 36 * s, 1.6, 0.7);
+        for (let i = 0; i < 3; i++) {
+          skPoly(
+            [
+              { x: 0 * s, y: (32 + i * 6) * s },
+              { x: 4 * s, y: (35 + i * 6) * s },
+              { x: 0 * s, y: (38 + i * 6) * s },
+              { x: -4 * s, y: (35 + i * 6) * s },
+            ],
+            PAL.sky,
+            STYLE.ink,
+            1.6
+          );
+        }
+      }
+
+      function drawCocoaMug({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 12 * s },
+            { x: 10 * s, y: 12 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -12 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(10 * s, 20 * s, 6 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(10 * s, 20 * s, 3 * s, 5 * s, STYLE.bg, STYLE.bg, 0);
+        skEllipse(-1 * s, 14 * s, 11 * s, 3.5 * s, PAL.cocoa, STYLE.ink, 1.8);
+        // steam
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4);
+        noFill();
+        for (let i = -1; i <= 1; i++) {
+          const x = (i * 4 + random(-0.6, 0.6)) * s;
+          beginShape();
+          for (let k = 0; k < 5; k++) {
+            const yy = (8 - k * 3) * s;
+            const xx = x + sin(k * 0.9 + frameCount * 0.03) * 1.2 * s;
+            vertex(xx, yy);
+          }
+          endShape();
+        }
+        cuteFace(-2 * s, 24 * s, 0.42 * s, 1);
+      }
+
+      function drawPostbox({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 12 * s },
+            { x: 12 * s, y: 12 * s },
+            { x: 12 * s, y: 30 * s },
+            { x: -12 * s, y: 30 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 12 * s, 12 * s, 10 * s, PAL.red, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -8 * s, y: 20 * s },
+            { x: 8 * s, y: 20 * s },
+            { x: 8 * s, y: 26 * s },
+            { x: -8 * s, y: 26 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        // small envelope icon
+        skPoly(
+          [
+            { x: -5 * s, y: 21.5 * s },
+            { x: 5 * s, y: 21.5 * s },
+            { x: 5 * s, y: 24.5 * s },
+            { x: -5 * s, y: 24.5 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.2
+        );
+        skLine(-5 * s, 21.5 * s, 0, 23.2 * s, 1.2, 0.5);
+        skLine(5 * s, 21.5 * s, 0, 23.2 * s, 1.2, 0.5);
+      }
+
+      function drawBenchFairyLights({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 14 * s, y: 24 * s },
+            { x: -14 * s, y: 24 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-12 * s, 24 * s, -12 * s, 32 * s, 2.4, 0.7);
+        skLine(12 * s, 24 * s, 12 * s, 32 * s, 2.4, 0.7);
+        // fairy lights
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4);
+        noFill();
+        beginShape();
+        for (let i = 0; i <= 6; i++) {
+          const xx = lerp(-16 * s, 16 * s, i / 6);
+          const yy = (8 + sin(i * 0.7) * 3) * s;
+          vertex(xx, yy);
+        }
+        endShape();
+        noStroke();
+        for (let i = 0; i < 6; i++) {
+          const xx = lerp(-14 * s, 14 * s, i / 5);
+          const yy = (8 + sin(i * 0.7) * 3) * s;
+          fill(255, 225, 140, 220);
+          ellipse(xx, yy, 4 * s, 4 * s);
+        }
+      }
+
+      // ---- 21-40 (道具为主) ----
+      function drawBakerySign({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 10 * s },
+            { x: 10 * s, y: 10 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: -14 * s, y: 22 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-6 * s, 22 * s, -6 * s, 34 * s, 2.4, 0.7);
+        // wheat icon
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4);
+        for (let i = 0; i < 5; i++) {
+          skLine(0, (12 + i * 2) * s, 4 * s, (11 + i * 2) * s, 1.2, 0.5);
+          skLine(0, (12 + i * 2) * s, -4 * s, (11 + i * 2) * s, 1.2, 0.5);
+        }
+        skLine(0, 12 * s, 0, 22 * s, 1.2, 0.5);
+      }
+
+      function drawCandyCart({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 14 * s, y: 30 * s },
+            { x: -14 * s, y: 30 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -18 * s, y: 10 * s },
+            { x: 18 * s, y: 10 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: -14 * s, y: 18 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        for (let i = 0; i < 5; i++) {
+          const x = lerp(-14 * s, 14 * s, i / 4);
+          skLine(x, 10 * s, x, 18 * s, 1.6, 0.6);
+        }
+        skEllipse(-10 * s, 30 * s, 4.5 * s, 4.5 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(10 * s, 30 * s, 4.5 * s, 4.5 * s, PAL.gray, STYLE.ink, 2.0);
+        skLine(16 * s, 22 * s, 24 * s, 14 * s, 1.8, 0.6);
+      }
+
+      function drawTent({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 30 * s },
+            { x: 0 * s, y: 8 * s },
+            { x: 16 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -6 * s, y: 30 * s },
+            { x: 0 * s, y: 18 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        skLine(0, 8 * s, 0, 32 * s, 1.4, 0.6);
+      }
+
+      function drawPicnicBasket({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 14 * s, y: 32 * s },
+            { x: -14 * s, y: 32 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 16 * s, 14 * s, 10 * s, PAL.caramel, STYLE.ink, 2.0);
+        for (let i = 0; i < 5; i++) {
+          const x = lerp(-12 * s, 12 * s, i / 4);
+          skLine(x, 20 * s, x, 32 * s, 1.2, 0.5);
+        }
+        skLine(-8 * s, 14 * s, 8 * s, 14 * s, 2.0, 0.6);
+      }
+
+      function drawWindChime({ s, hovered }) {
+        skLine(0, 4 * s, 0, 10 * s, hovered ? 2.6 : 2.0, 0.6);
+        skEllipse(0, 4 * s, 5 * s, 5 * s, PAL.cream, STYLE.ink, 2.0);
+        skLine(0, 10 * s, -10 * s, 22 * s, 1.4, 0.6);
+        skLine(0, 10 * s, 10 * s, 22 * s, 1.4, 0.6);
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: -4 * s, y: 22 * s },
+            { x: -6 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.6 : 2.0
+        );
+        skPoly(
+          [
+            { x: 4 * s, y: 22 * s },
+            { x: 12 * s, y: 22 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          hovered ? 2.6 : 2.0
+        );
+      }
+
+      function drawPaperPlane({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 18 * s, y: 10 * s },
+            { x: -6 * s, y: 26 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-8 * s, 18 * s, 6 * s, 14 * s, 1.6, 0.6);
+        // trail
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.2);
+        noFill();
+        beginShape();
+        for (let i = 0; i < 6; i++) {
+          const t = i / 5;
+          vertex(lerp(-20 * s, -2 * s, t), (28 + sin(i * 0.8) * 2) * s);
+        }
+        endShape();
+      }
+
+      function drawBalloons({ s, hovered }) {
+        const cols = [PAL.pink, PAL.sky, PAL.honey, PAL.mint];
+        for (let i = 0; i < 4; i++) {
+          skEllipse((-10 + i * 7) * s, (10 + (i % 2) * 2) * s, 6.5 * s, 8.5 * s, cols[i], STYLE.ink, hovered ? 2.6 : 2.0);
+          skLine((-10 + i * 7) * s, (18 + (i % 2) * 2) * s, 0, 34 * s, 1.0, 0.5);
+        }
+        skPoly(
+          [
+            { x: -4 * s, y: 34 * s },
+            { x: 4 * s, y: 34 * s },
+            { x: 2 * s, y: 38 * s },
+            { x: -2 * s, y: 38 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      function drawDirectionSign({ s, hovered }) {
+        skLine(-2 * s, 10 * s, -2 * s, 36 * s, hovered ? 2.8 : 2.2, 0.7);
+        skPoly(
+          [
+            { x: -18 * s, y: 12 * s },
+            { x: 10 * s, y: 12 * s },
+            { x: 18 * s, y: 18 * s },
+            { x: 10 * s, y: 24 * s },
+            { x: -18 * s, y: 24 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: -18 * s, y: 24 * s },
+            { x: 6 * s, y: 24 * s },
+            { x: 14 * s, y: 30 * s },
+            { x: 6 * s, y: 36 * s },
+            { x: -18 * s, y: 36 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+      }
+
+      function drawMailbox({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 18 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: 14 * s, y: 32 * s },
+            { x: -14 * s, y: 32 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 18 * s, 14 * s, 10 * s, PAL.red, STYLE.ink, 2.0);
+        skLine(0, 32 * s, 0, 38 * s, 2.2, 0.7);
+        skPoly(
+          [
+            { x: -6 * s, y: 23 * s },
+            { x: 6 * s, y: 23 * s },
+            { x: 6 * s, y: 28 * s },
+            { x: -6 * s, y: 28 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.6
+        );
+      }
+
+      function drawFountain({ s, hovered }) {
+        skEllipse(0, 30 * s, 18 * s, 6 * s, PAL.sky, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -14 * s, y: 22 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.gray,
+          STYLE.ink,
+          2.0
+        );
+        stroke(120, 180, 220, 200);
+        strokeWeight(2);
+        noFill();
+        for (let i = -1; i <= 1; i++) arc(i * 6 * s, 18 * s, 16 * s, 18 * s, PI, TWO_PI);
+        noStroke();
+        fill(120, 180, 220, 180);
+        ellipse(0, 22 * s, 4 * s, 4 * s);
+      }
+
+      function drawLittleBridge({ s, hovered }) {
+        skPoly(
+          [
+            { x: -18 * s, y: 26 * s },
+            { x: 18 * s, y: 26 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.6);
+        noFill();
+        arc(0, 26 * s, 44 * s, 26 * s, PI, TWO_PI);
+        for (let i = 0; i < 6; i++) {
+          const x = lerp(-12 * s, 12 * s, i / 5);
+          skLine(x, 26 * s, x, 34 * s, 1.2, 0.5);
+        }
+      }
+
+      function drawFlowerBush({ s, hovered }) {
+        skEllipse(-8 * s, 22 * s, 10 * s, 7 * s, PAL.leaf, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(4 * s, 20 * s, 12 * s, 8 * s, PAL.leaf, STYLE.ink, 2.0);
+        skEllipse(12 * s, 24 * s, 10 * s, 7 * s, PAL.leaf, STYLE.ink, 2.0);
+        const flowers = [PAL.pink, PAL.honey, PAL.sky];
+        for (let i = 0; i < 5; i++) {
+          const x = (-10 + i * 5 + random(-1, 1)) * s;
+          const y = (18 + random(-2, 2)) * s;
+          skEllipse(x, y, 2.4 * s, 2.4 * s, flowers[i % flowers.length], STYLE.ink, 1.2);
+        }
+      }
+
+      function drawCocoaStall({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 34 * s },
+            { x: -16 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -18 * s, y: 10 * s },
+            { x: 18 * s, y: 10 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: -14 * s, y: 18 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          2.0
+        );
+        for (let i = 0; i < 5; i++) {
+          const x = lerp(-14 * s, 14 * s, i / 4);
+          skLine(x, 10 * s, x, 18 * s, 1.4, 0.5);
+        }
+        skEllipse(-6 * s, 26 * s, 5 * s, 5 * s, PAL.cocoa, STYLE.ink, 1.6);
+        skEllipse(6 * s, 26 * s, 5 * s, 5 * s, PAL.cocoa, STYLE.ink, 1.6);
+      }
+
+      function drawBookStand({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 20 * s },
+            { x: 16 * s, y: 20 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -16 * s, y: 10 * s },
+            { x: 16 * s, y: 10 * s },
+            { x: 12 * s, y: 20 * s },
+            { x: -12 * s, y: 20 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          2.0
+        );
+        // books
+        skPoly(
+          [
+            { x: -10 * s, y: 24 * s },
+            { x: -2 * s, y: 24 * s },
+            { x: -2 * s, y: 32 * s },
+            { x: -10 * s, y: 32 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          1.6
+        );
+        skPoly(
+          [
+            { x: 0 * s, y: 24 * s },
+            { x: 10 * s, y: 24 * s },
+            { x: 10 * s, y: 32 * s },
+            { x: 0 * s, y: 32 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          1.6
+        );
+      }
+
+      function drawStringLights({ s, hovered }) {
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.6);
+        noFill();
+        beginShape();
+        for (let i = 0; i <= 7; i++) {
+          const xx = lerp(-18 * s, 18 * s, i / 7);
+          const yy = (16 + sin(i * 0.7) * 4) * s;
+          vertex(xx, yy);
+        }
+        endShape();
+        noStroke();
+        for (let i = 0; i < 7; i++) {
+          const xx = lerp(-16 * s, 16 * s, i / 6);
+          const yy = (16 + sin(i * 0.7) * 4) * s;
+          const col = i % 3 === 0 ? PAL.honey : i % 3 === 1 ? PAL.pink : PAL.sky;
+          fill(col[0], col[1], col[2], hovered ? 240 : 210);
+          ellipse(xx, yy + 3 * s, 5 * s, 5 * s);
+        }
+      }
+
+      function drawUmbrella({ s, hovered }) {
+        skEllipse(0, 18 * s, 18 * s, 10 * s, PAL.red, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-18 * s, 18 * s, 18 * s, 18 * s, 1.8, 0.6);
+        for (let i = -2; i <= 2; i++) skLine(i * 6 * s, 18 * s, 0, 6 * s, 1.2, 0.5);
+        skLine(0, 18 * s, 0, 34 * s, 2.0, 0.6);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(2.0);
+        noFill();
+        arc(4 * s, 34 * s, 10 * s, 10 * s, PI, TWO_PI);
+      }
+
+      function drawPinwheel({ s, hovered }) {
+        skLine(0, 14 * s, 0, 36 * s, hovered ? 2.8 : 2.2, 0.7);
+        const petals = [PAL.pink, PAL.sky, PAL.honey, PAL.mint];
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * TWO_PI + frameCount * 0.01;
+          skPoly(
+            [
+              { x: 0, y: 14 * s },
+              { x: cos(a) * 14 * s, y: 14 * s + sin(a) * 14 * s },
+              { x: cos(a + 0.6) * 10 * s, y: 14 * s + sin(a + 0.6) * 10 * s },
+            ],
+            petals[i]
+          );
+        }
+        skEllipse(0, 14 * s, 2.8 * s, 2.8 * s, PAL.cream, STYLE.ink, 1.6);
+      }
+
+      function drawStickerBadge({ s, hovered }) {
+        skEllipse(0, 18 * s, 14 * s, 14 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        // scalloped edge
+        noStroke();
+        fill(255, 220, 160, 120);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TWO_PI;
+          ellipse(cos(a) * 14 * s, 18 * s + sin(a) * 14 * s, 4.5 * s, 4.5 * s);
+        }
+        skPoly(
+          [
+            { x: 0, y: 10 * s },
+            { x: 3.5 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 5 * s, y: 20 * s },
+            { x: 7 * s, y: 28 * s },
+            { x: 0, y: 23 * s },
+            { x: -7 * s, y: 28 * s },
+            { x: -5 * s, y: 20 * s },
+            { x: -10 * s, y: 16 * s },
+            { x: -3.5 * s, y: 16 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      function drawClockTower({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 8 * s, y: 36 * s },
+            { x: -8 * s, y: 36 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -12 * s, y: 8 * s },
+            { x: 12 * s, y: 8 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: -10 * s, y: 14 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 22 * s, 7 * s, 7 * s, [250, 250, 245], STYLE.ink, 1.8);
+        skLine(0, 22 * s, 0, 18.5 * s, 1.4, 0.5);
+        skLine(0, 22 * s, 3 * s, 24 * s, 1.4, 0.5);
+      }
+
+      function drawPawPrints({ s, hovered }) {
+        const w = hovered ? 2.2 : 1.8;
+        skEllipse(-8 * s, 18 * s, 5 * s, 6 * s, PAL.cocoa, STYLE.ink, w);
+        for (let i = 0; i < 4; i++) {
+          const a = map(i, 0, 3, -PI * 0.8, -PI * 0.2);
+          skEllipse(-8 * s + cos(a) * 7 * s, 16 * s + sin(a) * 7 * s, 2.5 * s, 2.8 * s, PAL.cocoa, STYLE.ink, 1.4);
+        }
+        skEllipse(10 * s, 28 * s, 5 * s, 6 * s, PAL.cocoa, STYLE.ink, w);
+        for (let i = 0; i < 4; i++) {
+          const a = map(i, 0, 3, -PI * 0.8, -PI * 0.2);
+          skEllipse(10 * s + cos(a) * 7 * s, 26 * s + sin(a) * 7 * s, 2.5 * s, 2.8 * s, PAL.cocoa, STYLE.ink, 1.4);
+        }
+      }
+
+      // =========================
+      // 第 2 页资产（41-80）
+      // =========================
+      function drawBreadLoaf({ s, hovered }) {
+        skEllipse(0, 20 * s, 18 * s, 12 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-6 * s, 18 * s, 10 * s, 9 * s, PAL.caramel, STYLE.ink, 2.0);
+        skEllipse(6 * s, 18 * s, 10 * s, 9 * s, PAL.caramel, STYLE.ink, 2.0);
+        for (let i = -1; i <= 1; i++) skLine(i * 5 * s, 16 * s, i * 5 * s, 26 * s, 1.2, 0.5);
+        noStroke();
+        fill(255, 255, 255, 70);
+        ellipse(-4 * s, 18 * s, 6 * s, 4 * s);
+      }
+
+      function drawMilkBottle({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 14 * s, 10 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -7 * s, y: 6 * s },
+            { x: 7 * s, y: 6 * s },
+            { x: 6 * s, y: 14 * s },
+            { x: -6 * s, y: 14 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+        textAlign(CENTER, CENTER);
+        fill(...STYLE.inkSoft);
+        noStroke();
+        textSize(10 * s);
+        text("牛奶", 0, 10 * s);
+      }
+
+      function drawJamJar({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 16 * s },
+            { x: 12 * s, y: 16 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 16 * s, 12 * s, 8 * s, PAL.gray, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -8 * s, y: 22 * s },
+            { x: 8 * s, y: 22 * s },
+            { x: 8 * s, y: 28 * s },
+            { x: -8 * s, y: 28 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        skEllipse(0, 25 * s, 2.2 * s, 2.2 * s, [255, 90, 110], STYLE.ink, 1.2);
+      }
+
+      function drawHoneyJar({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 18 * s },
+            { x: 12 * s, y: 18 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 18 * s, 12 * s, 8 * s, PAL.gray, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -8 * s, y: 24 * s },
+            { x: 8 * s, y: 24 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        // little bee
+        skEllipse(0, 27 * s, 2.2 * s, 2.0 * s, PAL.honey, STYLE.ink, 1.0);
+        skLine(-2 * s, 27 * s, 2 * s, 27 * s, 1.0, 0.4);
+        skEllipse(3.5 * s, 26.5 * s, 1.2 * s, 1.2 * s, PAL.cream, STYLE.ink, 0.8);
+      }
+
+      function drawStrawberryCake({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 24 * s },
+            { x: 14 * s, y: 24 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 24 * s, 14 * s, 6 * s, PAL.cream, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -12 * s, y: 18 * s },
+            { x: 12 * s, y: 18 * s },
+            { x: 10 * s, y: 24 * s },
+            { x: -10 * s, y: 24 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 16 * s, 3 * s, 3 * s, [255, 90, 110], STYLE.ink, 1.4);
+        skPoly(
+          [
+            { x: -2 * s, y: 14 * s },
+            { x: 0, y: 12 * s },
+            { x: 2 * s, y: 14 * s },
+            { x: 0, y: 16 * s },
+          ],
+          PAL.leaf,
+          STYLE.ink,
+          1.2
+        );
+      }
+
+      function drawCookieTin({ s, hovered }) {
+        skEllipse(0, 26 * s, 16 * s, 10 * s, PAL.blue, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 22 * s, 16 * s, 10 * s, PAL.blue, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -8 * s, y: 24 * s },
+            { x: 8 * s, y: 24 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.6
+        );
+        skEllipse(0, 27 * s, 3.2 * s, 3.2 * s, PAL.caramel, STYLE.ink, 1.2);
+      }
+
+      function drawTeapot({ s, hovered }) {
+        skEllipse(0, 24 * s, 16 * s, 10 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 20 * s, 12 * s, 6 * s, PAL.cream, STYLE.ink, 2.0);
+        skLine(-4 * s, 16 * s, 4 * s, 16 * s, 1.8, 0.6);
+        skLine(8 * s, 22 * s, 18 * s, 20 * s, 1.8, 0.6);
+        skLine(18 * s, 20 * s, 10 * s, 26 * s, 1.8, 0.6);
+        skEllipse(-12 * s, 24 * s, 6 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(-12 * s, 24 * s, 3 * s, 5 * s, STYLE.bg, STYLE.bg, 0);
+      }
+
+      function drawDonutPlate({ s, hovered }) {
+        skEllipse(0, 30 * s, 18 * s, 6 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 28 * s, 18 * s, 6 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(-4 * s, 22 * s, 10 * s, 8 * s, PAL.caramel, STYLE.ink, 2.0);
+        skEllipse(-4 * s, 22 * s, 3 * s, 2.4 * s, STYLE.bg, STYLE.bg, 0);
+        noStroke();
+        fill(255, 160, 175, 170);
+        for (let i = 0; i < 8; i++) ellipse(-8 * s + i * 2 * s, 20.5 * s + sin(i) * 0.4 * s, 1.2 * s, 1.2 * s);
+      }
+
+      function drawCactusPot({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: 12 * s, y: 22 * s },
+            { x: 9 * s, y: 34 * s },
+            { x: -9 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -4 * s, y: 8 * s },
+            { x: 4 * s, y: 8 * s },
+            { x: 6 * s, y: 24 * s },
+            { x: -6 * s, y: 24 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: -4 * s, y: 14 * s },
+            { x: -4 * s, y: 22 * s },
+            { x: -10 * s, y: 22 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.8
+        );
+        skEllipse(0, 10 * s, 2.0 * s, 2.0 * s, PAL.pink, STYLE.ink, 1.0);
+      }
+
+      function drawSunflower({ s, hovered }) {
+        skLine(0, 34 * s, 0, 16 * s, hovered ? 2.6 : 2.0, 0.7);
+        skPoly(
+          [
+            { x: -10 * s, y: 22 * s },
+            { x: -2 * s, y: 18 * s },
+            { x: -2 * s, y: 26 * s },
+          ],
+          PAL.leaf
+        );
+        skPoly(
+          [
+            { x: 10 * s, y: 24 * s },
+            { x: 2 * s, y: 20 * s },
+            { x: 2 * s, y: 28 * s },
+          ],
+          PAL.leaf
+        );
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TWO_PI;
+          skEllipse(cos(a) * 10 * s, 14 * s + sin(a) * 10 * s, 4.5 * s, 2.8 * s, PAL.honey, STYLE.ink, 1.4);
+        }
+        skEllipse(0, 14 * s, 6 * s, 6 * s, PAL.cocoa, STYLE.ink, hovered ? 2.6 : 2.0);
+        noStroke();
+        fill(40, 30, 25, 220);
+        ellipse(-2 * s, 13 * s, 1.2 * s, 1.2 * s);
+        ellipse(2 * s, 13 * s, 1.2 * s, 1.2 * s);
+      }
+
+      function drawWateringCan({ s, hovered }) {
+        skEllipse(-2 * s, 26 * s, 16 * s, 10 * s, PAL.sky, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(8 * s, 22 * s, 6 * s, 8 * s, PAL.sky, STYLE.ink, 2.0);
+        skEllipse(8 * s, 22 * s, 3 * s, 5 * s, STYLE.bg, STYLE.bg, 0);
+        skLine(6 * s, 24 * s, 16 * s, 20 * s, 1.8, 0.6);
+        skPoly(
+          [
+            { x: 16 * s, y: 18 * s },
+            { x: 20 * s, y: 20 * s },
+            { x: 16 * s, y: 22 * s },
+          ],
+          PAL.sky
+        );
+        // drops
+        noStroke();
+        fill(120, 180, 220, 200);
+        for (let i = 0; i < 3; i++) ellipse((18 + i * 2.2) * s, (22 + i * 3.6) * s, 2 * s, 2.6 * s);
+      }
+
+      function drawFlowerBouquet({ s, hovered }) {
+        skPoly(
+          [
+            { x: -6 * s, y: 18 * s },
+            { x: 6 * s, y: 18 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        const cols = [PAL.pink, PAL.honey, PAL.sky];
+        for (let i = 0; i < 5; i++) {
+          const x = (-10 + i * 5 + random(-1, 1)) * s;
+          const y = (10 + random(-2, 2)) * s;
+          skEllipse(x, y, 3.6 * s, 3.6 * s, cols[i % cols.length], STYLE.ink, 1.6);
+          skEllipse(x, y, 1.6 * s, 1.6 * s, PAL.cream, STYLE.ink, 1.0);
+        }
+        ribbonBow(0, 20 * s, 1.1 * s, PAL.pink);
+      }
+
+      function drawPaperLantern({ s, hovered }) {
+        skEllipse(0, 22 * s, 14 * s, 16 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 14 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+        skEllipse(0, 30 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+        for (let i = -2; i <= 2; i++) skLine(i * 4 * s, 14 * s, i * 4 * s, 30 * s, 1.2, 0.5);
+        noStroke();
+        fill(255, 230, 170, hovered ? 130 : 100);
+        ellipse(0, 22 * s, 26 * s, 26 * s);
+      }
+
+      function drawCandle({ s, hovered }) {
+        skPoly(
+          [
+            { x: -8 * s, y: 18 * s },
+            { x: 8 * s, y: 18 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 18 * s, 8 * s, 4 * s, PAL.cream, STYLE.ink, 2.0);
+        skLine(0, 14 * s, 0, 10 * s, 1.4, 0.5);
+        skEllipse(0, 8 * s, 3.2 * s, 4.5 * s, PAL.honey, STYLE.ink, 1.6);
+        noStroke();
+        fill(255, 200, 120, hovered ? 160 : 120);
+        ellipse(0, 10 * s, 20 * s, 20 * s);
+      }
+
+      function drawStarOrnament({ s, hovered }) {
+        skLine(0, 6 * s, 0, 12 * s, 1.6, 0.5);
+        skPoly(
+          [
+            { x: 0, y: 10 * s },
+            { x: 3.5 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 5 * s, y: 20 * s },
+            { x: 7 * s, y: 28 * s },
+            { x: 0, y: 23 * s },
+            { x: -7 * s, y: 28 * s },
+            { x: -5 * s, y: 20 * s },
+            { x: -10 * s, y: 16 * s },
+            { x: -3.5 * s, y: 16 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        noStroke();
+        fill(255, 230, 170, hovered ? 120 : 90);
+        ellipse(0, 20 * s, 28 * s, 28 * s);
+      }
+
+      function drawHeartOrnament({ s, hovered }) {
+        skLine(0, 6 * s, 0, 12 * s, 1.6, 0.5);
+        skEllipse(-5 * s, 18 * s, 7 * s, 7 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(5 * s, 18 * s, 7 * s, 7 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -12 * s, y: 20 * s },
+            { x: 0, y: 34 * s },
+            { x: 12 * s, y: 20 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          2.0
+        );
+        noStroke();
+        fill(255, 200, 210, hovered ? 120 : 90);
+        ellipse(0, 22 * s, 28 * s, 28 * s);
+      }
+
+      function drawPhotoFrame({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 10 * s },
+            { x: 14 * s, y: 10 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        // tiny picture: sun + hill
+        skEllipse(-4 * s, 18 * s, 2.4 * s, 2.4 * s, PAL.honey, STYLE.ink, 0.9);
+        skPoly(
+          [
+            { x: -10 * s, y: 30 * s },
+            { x: -2 * s, y: 24 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.2
+        );
+      }
+
+      function drawWallPoster({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 10 * s },
+            { x: 12 * s, y: 10 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 20 * s, 8 * s, 8 * s, PAL.sky, STYLE.ink, 1.6);
+        skPoly(
+          [
+            { x: -6 * s, y: 30 * s },
+            { x: 0, y: 24 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.4
+        );
+        skEllipse(0, 12 * s, 2.0 * s, 2.0 * s, PAL.pink, STYLE.ink, 0.8);
+      }
+
+      function drawMusicBox({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 22 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -14 * s, y: 14 * s },
+            { x: 14 * s, y: 14 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: -14 * s, y: 22 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        // note
+        skLine(2 * s, 12 * s, 2 * s, 6 * s, 1.6, 0.6);
+        skLine(2 * s, 6 * s, 8 * s, 8 * s, 1.6, 0.6);
+        skEllipse(0, 12 * s, 3.4 * s, 2.8 * s, PAL.pink, STYLE.ink, 1.4);
+      }
+
+      function drawBell({ s, hovered }) {
+        skEllipse(0, 24 * s, 14 * s, 12 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 18 * s, 10 * s, 6 * s, PAL.honey, STYLE.ink, 2.0);
+        skLine(-10 * s, 24 * s, 10 * s, 24 * s, 1.6, 0.6);
+        skEllipse(0, 30 * s, 2.2 * s, 2.2 * s, PAL.cocoa, STYLE.ink, 1.2);
+        skLine(0, 12 * s, 0, 18 * s, 1.4, 0.5);
+        skEllipse(0, 12 * s, 2.8 * s, 2.8 * s, PAL.gray, STYLE.ink, 1.4);
+      }
+
+      function drawKey({ s, hovered }) {
+        skEllipse(-8 * s, 20 * s, 6 * s, 6 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-8 * s, 20 * s, 2.2 * s, 2.2 * s, STYLE.bg, STYLE.bg, 0);
+        skLine(-4 * s, 20 * s, 16 * s, 20 * s, 2.4, 0.7);
+        skLine(10 * s, 20 * s, 10 * s, 24 * s, 2.0, 0.6);
+        skLine(14 * s, 20 * s, 14 * s, 22.5 * s, 2.0, 0.6);
+      }
+
+      function drawPadlock({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 20 * s },
+            { x: 10 * s, y: 20 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        noFill();
+        stroke(...STYLE.ink);
+        strokeWeight(2.2);
+        arc(0, 20 * s, 14 * s, 14 * s, PI, TWO_PI);
+        skEllipse(0, 28 * s, 2.2 * s, 2.2 * s, PAL.cocoa, STYLE.ink, 1.2);
+      }
+
+      function drawEnvelopeSticker({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 32 * s },
+            { x: -16 * s, y: 32 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-16 * s, 18 * s, 0, 26 * s, 1.6, 0.6);
+        skLine(16 * s, 18 * s, 0, 26 * s, 1.6, 0.6);
+        skLine(-16 * s, 32 * s, 0, 24 * s, 1.6, 0.6);
+        skLine(16 * s, 32 * s, 0, 24 * s, 1.6, 0.6);
+        skEllipse(10 * s, 22 * s, 3.2 * s, 3.2 * s, PAL.pink, STYLE.ink, 1.4);
+      }
+
+      function drawPostcard({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 14 * s },
+            { x: 16 * s, y: 14 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(6 * s, 14 * s, 6 * s, 34 * s, 1.4, 0.5);
+        skLine(6 * s, 22 * s, 16 * s, 22 * s, 1.2, 0.5);
+        skLine(6 * s, 26 * s, 16 * s, 26 * s, 1.2, 0.5);
+        skEllipse(-6 * s, 22 * s, 6 * s, 6 * s, PAL.sky, STYLE.ink, 1.6);
+        skPoly(
+          [
+            { x: -12 * s, y: 34 * s },
+            { x: -2 * s, y: 26 * s },
+            { x: 4 * s, y: 34 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.4
+        );
+      }
+
+      function drawMapScroll({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 32 * s },
+            { x: -16 * s, y: 32 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(-16 * s, 25 * s, 4 * s, 10 * s, PAL.caramel, STYLE.ink, 2.0);
+        skEllipse(16 * s, 25 * s, 4 * s, 10 * s, PAL.caramel, STYLE.ink, 2.0);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.2);
+        noFill();
+        beginShape();
+        for (let i = 0; i < 5; i++) vertex((-10 + i * 5) * s, (22 + sin(i) * 2) * s);
+        endShape();
+        skEllipse(4 * s, 26 * s, 2.2 * s, 2.2 * s, PAL.pink, STYLE.ink, 1.0);
+      }
+
+      function drawCompass({ s, hovered }) {
+        skEllipse(0, 22 * s, 14 * s, 14 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 22 * s, 10 * s, 10 * s, STYLE.bg, STYLE.ink, 1.6);
+        skLine(0, 16 * s, 0, 28 * s, 1.2, 0.5);
+        skLine(-6 * s, 22 * s, 6 * s, 22 * s, 1.2, 0.5);
+        skPoly(
+          [
+            { x: 0, y: 16 * s },
+            { x: 2 * s, y: 22 * s },
+            { x: 0, y: 28 * s },
+            { x: -2 * s, y: 22 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          1.4
+        );
+      }
+
+      function drawSpyglass({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 6 * s, y: 14 * s },
+            { x: 10 * s, y: 26 * s },
+            { x: -12 * s, y: 30 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(8 * s, 20 * s, 6 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(8 * s, 20 * s, 3 * s, 3 * s, STYLE.bg, STYLE.bg, 0);
+        skLine(-10 * s, 22 * s, 6 * s, 18 * s, 1.2, 0.5);
+      }
+
+      function drawCamera({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 14 * s, y: 32 * s },
+            { x: -14 * s, y: 32 * s },
+          ],
+          PAL.gray,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: -2 * s, y: 14 * s },
+            { x: 0, y: 18 * s },
+            { x: -10 * s, y: 18 * s },
+          ],
+          PAL.gray,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 25 * s, 7 * s, 7 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(0, 25 * s, 3 * s, 3 * s, PAL.sky, STYLE.ink, 1.2);
+        skEllipse(10 * s, 22 * s, 2.2 * s, 2.2 * s, PAL.pink, STYLE.ink, 1.0);
+      }
+
+      function drawRadio({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 20 * s },
+            { x: 16 * s, y: 20 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-10 * s, 20 * s, 6 * s, 10 * s, 1.6, 0.6);
+        skEllipse(-6 * s, 27 * s, 6.5 * s, 6.5 * s, PAL.cream, STYLE.ink, 2.0);
+        for (let i = 0; i < 5; i++) skLine(6 * s, (24 + i * 2) * s, 12 * s, (24 + i * 2) * s, 1.2, 0.5);
+      }
+
+      function drawGuitar({ s, hovered }) {
+        skEllipse(-4 * s, 26 * s, 10 * s, 8 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-2 * s, 20 * s, 8 * s, 6 * s, PAL.caramel, STYLE.ink, 2.0);
+        skLine(4 * s, 18 * s, 16 * s, 12 * s, 2.2, 0.7);
+        skPoly(
+          [
+            { x: 14 * s, y: 8 * s },
+            { x: 18 * s, y: 10 * s },
+            { x: 17 * s, y: 15 * s },
+            { x: 12 * s, y: 13 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          2.0
+        );
+        for (let i = 0; i < 4; i++) skLine(-8 * s + i * 3 * s, 18 * s, 2 * s + i * 3 * s, 34 * s, 1.0, 0.4);
+        skEllipse(-4 * s, 26 * s, 2.4 * s, 2.4 * s, STYLE.bg, STYLE.bg, 0);
+      }
+
+      function drawBalloonDog({ s, hovered }) {
+        const col = PAL.pink;
+        skEllipse(-8 * s, 24 * s, 7 * s, 4.5 * s, col, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 24 * s, 10 * s, 5 * s, col, STYLE.ink, 2.0);
+        skEllipse(10 * s, 24 * s, 6 * s, 4.5 * s, col, STYLE.ink, 2.0);
+        skEllipse(-12 * s, 20 * s, 5 * s, 4.5 * s, col, STYLE.ink, 2.0);
+        skEllipse(-16 * s, 18 * s, 4.5 * s, 4.5 * s, col, STYLE.ink, 2.0);
+        skEllipse(-14 * s, 28 * s, 3.6 * s, 6 * s, col, STYLE.ink, 2.0);
+        skEllipse(-2 * s, 28 * s, 3.6 * s, 6 * s, col, STYLE.ink, 2.0);
+        skEllipse(8 * s, 28 * s, 3.6 * s, 6 * s, col, STYLE.ink, 2.0);
+        noStroke();
+        fill(40, 30, 25, 220);
+        ellipse(-17 * s, 18 * s, 1.4 * s, 1.4 * s);
+      }
+
+      function drawToyBlocks({ s, hovered }) {
+        const w = hovered ? 2.8 : 2.2;
+        skPoly(
+          [
+            { x: -16 * s, y: 22 * s },
+            { x: -2 * s, y: 22 * s },
+            { x: -2 * s, y: 36 * s },
+            { x: -16 * s, y: 36 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: 0, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 36 * s },
+            { x: 0, y: 36 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: -2 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 10 * s, y: 28 * s },
+            { x: -2 * s, y: 28 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          w
+        );
+        fill(...STYLE.inkSoft);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(10 * s);
+        text("A", -9 * s, 29 * s);
+        text("B", 7 * s, 27 * s);
+      }
+
+      function drawPaperBoat({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 30 * s },
+            { x: 16 * s, y: 30 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -16 * s, y: 30 * s },
+            { x: 0, y: 18 * s },
+            { x: 16 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        skLine(0, 18 * s, 0, 34 * s, 1.2, 0.5);
+      }
+
+      function drawSailboat({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 30 * s },
+            { x: 16 * s, y: 30 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(0, 12 * s, 0, 30 * s, 2.0, 0.6);
+        skPoly(
+          [
+            { x: 0, y: 12 * s },
+            { x: 0, y: 28 * s },
+            { x: 14 * s, y: 24 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: 0, y: 14 * s },
+            { x: -12 * s, y: 22 * s },
+            { x: 0, y: 22 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+      }
+
+      function drawRainBoots({ s, hovered }) {
+        const col = PAL.red;
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: -2 * s, y: 18 * s },
+            { x: -2 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+            { x: -16 * s, y: 30 * s },
+          ],
+          col,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: 2 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 30 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: 2 * s, y: 34 * s },
+          ],
+          col,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-16 * s, 22 * s, -2 * s, 22 * s, 1.4, 0.5);
+        skLine(2 * s, 22 * s, 16 * s, 22 * s, 1.4, 0.5);
+      }
+
+      function drawScarf({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 14 * s },
+            { x: 14 * s, y: 14 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: -10 * s, y: 22 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -8 * s, y: 22 * s },
+            { x: 0, y: 22 * s },
+            { x: 0, y: 38 * s },
+            { x: -8 * s, y: 36 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: 2 * s, y: 22 * s },
+            { x: 10 * s, y: 24 * s },
+            { x: 10 * s, y: 36 * s },
+            { x: 2 * s, y: 38 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          2.0
+        );
+        for (let i = 0; i < 5; i++) {
+          skLine(-8 * s + i * 2 * s, 36 * s, -8 * s + i * 2 * s, 40 * s, 1.0, 0.4);
+          skLine(2 * s + i * 2 * s, 38 * s, 2 * s + i * 2 * s, 42 * s, 1.0, 0.4);
+        }
+      }
+
+      function drawBeanie({ s, hovered }) {
+        skEllipse(0, 24 * s, 16 * s, 10 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -16 * s, y: 24 * s },
+            { x: 16 * s, y: 24 * s },
+            { x: 14 * s, y: 32 * s },
+            { x: -14 * s, y: 32 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 14 * s, 3.5 * s, 3.5 * s, PAL.cream, STYLE.ink, 1.6);
+      }
+
+      function drawMittens({ s, hovered }) {
+        const col = PAL.cream;
+        skEllipse(-8 * s, 24 * s, 8 * s, 10 * s, col, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-12 * s, 26 * s, 4 * s, 6 * s, col, STYLE.ink, 2.0);
+        skEllipse(8 * s, 24 * s, 8 * s, 10 * s, col, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(12 * s, 26 * s, 4 * s, 6 * s, col, STYLE.ink, 2.0);
+        skLine(-12 * s, 30 * s, -4 * s, 30 * s, 1.4, 0.5);
+        skLine(4 * s, 30 * s, 12 * s, 30 * s, 1.4, 0.5);
+      }
+
+      function drawTinySnowman({ s, hovered }) {
+        skEllipse(0, 28 * s, 12 * s, 10 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 18 * s, 9 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(0, 10 * s, 6.5 * s, 6.5 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 10 * s, 0.4 * s, 1);
+        skPoly(
+          [
+            { x: -8 * s, y: 18 * s },
+            { x: 8 * s, y: 18 * s },
+            { x: 6 * s, y: 22 * s },
+            { x: -6 * s, y: 22 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          1.8
+        );
+        skEllipse(0, 18 * s, 2.0 * s, 2.0 * s, PAL.cocoa, STYLE.ink, 1.0);
+        skEllipse(0, 24 * s, 2.0 * s, 2.0 * s, PAL.cocoa, STYLE.ink, 1.0);
+        skLine(-10 * s, 18 * s, -18 * s, 14 * s, 1.6, 0.6);
+        skLine(10 * s, 18 * s, 18 * s, 14 * s, 1.6, 0.6);
+      }
+
+      function drawPumpkinLantern({ s, hovered }) {
+        skEllipse(0, 26 * s, 16 * s, 12 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        for (let i = -2; i <= 2; i++) skLine(i * 3 * s, 20 * s, i * 3 * s, 32 * s, 1.0, 0.4);
+        skPoly(
+          [
+            { x: -2 * s, y: 14 * s },
+            { x: 2 * s, y: 14 * s },
+            { x: 4 * s, y: 20 * s },
+            { x: -4 * s, y: 20 * s },
+          ],
+          PAL.leaf,
+          STYLE.ink,
+          1.4
+        );
+        // face
+        skPoly(
+          [
+            { x: -6 * s, y: 24 * s },
+            { x: -2 * s, y: 22 * s },
+            { x: -4 * s, y: 26 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          1.2
+        );
+        skPoly(
+          [
+            { x: 6 * s, y: 24 * s },
+            { x: 2 * s, y: 22 * s },
+            { x: 4 * s, y: 26 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          1.2
+        );
+        stroke(...STYLE.inkSoft);
+        strokeWeight(2.0);
+        noFill();
+        arc(0, 28 * s, 8 * s, 6 * s, 0, PI);
+        noStroke();
+        fill(255, 210, 140, hovered ? 120 : 90);
+        ellipse(0, 26 * s, 28 * s, 22 * s);
+      }
+
+      // 还缺的 1-20 + 21-40 的若干个：用轻量但可辨识的造型补齐
+      function drawRoundSeal({ s, hovered }) {
+        skEllipse(0, 14 * s, 18 * s, 14 * s, PAL.gray, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-10 * s, 12 * s, 6 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(10 * s, 12 * s, 6 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        cuteFace(0, 16 * s, 0.55 * s, 1);
+        skEllipse(0, 24 * s, 10 * s, 6 * s, PAL.cream, STYLE.ink, 2.0);
+      }
+
+      function drawTinyDeer({ s, hovered }) {
+        skEllipse(0, 16 * s, 18 * s, 12 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 10 * s, 12 * s, 10 * s, PAL.caramel, STYLE.ink, 2.0);
+        cuteFace(0, 12 * s, 0.5 * s, 1);
+        // antlers
+        skLine(-4 * s, 2 * s, -10 * s, -6 * s, 1.6, 0.6);
+        skLine(-10 * s, -6 * s, -14 * s, -4 * s, 1.4, 0.6);
+        skLine(4 * s, 2 * s, 10 * s, -6 * s, 1.6, 0.6);
+        skLine(10 * s, -6 * s, 14 * s, -4 * s, 1.4, 0.6);
+      }
+
+      function drawLantern({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 12 * s },
+            { x: 10 * s, y: 12 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(0, 6 * s, 0, 12 * s, 1.6, 0.5);
+        skEllipse(0, 6 * s, 3.5 * s, 3.5 * s, PAL.gray, STYLE.ink, 1.8);
+        noStroke();
+        fill(255, 230, 170, hovered ? 140 : 110);
+        ellipse(0, 22 * s, 18 * s, 18 * s);
+      }
+
+      function drawLittleFountainCoin({ s, hovered }) {
+        skEllipse(0, 22 * s, 12 * s, 12 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.8);
+        noFill();
+        arc(0, 22 * s, 10 * s, 10 * s, 0, TWO_PI);
+        skLine(-4 * s, 22 * s, 4 * s, 22 * s, 1.2, 0.5);
+      }
+
+      // 让“缺的资产”不至于重复：用组合件快速产出 40 个不同造型
+      function drawSimpleHouse({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 18 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -16 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 0, y: 6 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: -4 * s, y: 24 * s },
+            { x: 4 * s, y: 24 * s },
+            { x: 4 * s, y: 34 * s },
+            { x: -4 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          1.8
+        );
+        skEllipse(8 * s, 26 * s, 3.5 * s, 3.5 * s, PAL.honey, STYLE.ink, 1.4);
+      }
+
+      function drawTinyFountain({ s, hovered }) {
+        // distinct from drawFountain: smaller, rounder
+        skEllipse(0, 30 * s, 20 * s, 7 * s, PAL.sky, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 26 * s, 14 * s, 5 * s, PAL.gray, STYLE.ink, 2.0);
+        stroke(120, 180, 220, 220);
+        strokeWeight(2);
+        noFill();
+        arc(0, 20 * s, 12 * s, 16 * s, PI, TWO_PI);
+        arc(-6 * s, 22 * s, 10 * s, 12 * s, PI, TWO_PI);
+        arc(6 * s, 22 * s, 10 * s, 12 * s, PI, TWO_PI);
+      }
+
+      function drawToyTrain({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 22 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -16 * s, y: 34 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: 10 * s, y: 26 * s },
+            { x: 18 * s, y: 26 * s },
+            { x: 18 * s, y: 34 * s },
+            { x: 10 * s, y: 34 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(-8 * s, 34 * s, 4.2 * s, 4.2 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(6 * s, 34 * s, 4.2 * s, 4.2 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(16 * s, 34 * s, 4.2 * s, 4.2 * s, PAL.gray, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -6 * s, y: 14 * s },
+            { x: 2 * s, y: 14 * s },
+            { x: 2 * s, y: 22 * s },
+            { x: -6 * s, y: 22 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        skLine(-12 * s, 14 * s, -12 * s, 22 * s, 2.0, 0.6);
+      }
+
+      // 将剩余若干“动物/物件”用独立函数填满（保持可读性，不做巨量复杂建模）
+      function drawRaccoon({ s, hovered }) {
+        skEllipse(0, 10 * s, 18 * s, 14 * s, PAL.gray, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 14 * s, 12 * s, 10 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(-6 * s, 10 * s, 4.8 * s, 5.6 * s, PAL.gray, STYLE.ink, 1.6);
+        skEllipse(6 * s, 10 * s, 4.8 * s, 5.6 * s, PAL.gray, STYLE.ink, 1.6);
+        cuteFace(0, 14 * s, 0.55 * s, 1);
+        skEllipse(18 * s, 22 * s, 10 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        skLine(14 * s, 22 * s, 22 * s, 22 * s, 1.2, 0.5);
+      }
+
+      function drawHamster({ s, hovered }) {
+        skEllipse(0, 12 * s, 18 * s, 16 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 16 * s, 12 * s, 12 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 14 * s, 0.55 * s, 1);
+        skEllipse(-10 * s, 8 * s, 5 * s, 5 * s, PAL.caramel, STYLE.ink, 2.0);
+        skEllipse(10 * s, 8 * s, 5 * s, 5 * s, PAL.caramel, STYLE.ink, 2.0);
+      }
+
+      function drawKoala({ s, hovered }) {
+        skEllipse(0, 10 * s, 18 * s, 14 * s, PAL.gray, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-12 * s, 6 * s, 7 * s, 7 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(12 * s, 6 * s, 7 * s, 7 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(0, 14 * s, 11 * s, 9 * s, PAL.cream, STYLE.ink, 2.0);
+        cuteFace(0, 14 * s, 0.55 * s, 1);
+        skEllipse(0, 15 * s, 2.8 * s, 3.8 * s, [60, 60, 70], STYLE.ink, 1.4);
+      }
+
+      function drawFrog({ s, hovered }) {
+        skEllipse(0, 14 * s, 18 * s, 14 * s, PAL.mint, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-8 * s, 8 * s, 6 * s, 6 * s, PAL.mint, STYLE.ink, 2.0);
+        skEllipse(8 * s, 8 * s, 6 * s, 6 * s, PAL.mint, STYLE.ink, 2.0);
+        noStroke();
+        fill(40, 30, 25, 230);
+        ellipse(-8 * s, 8 * s, 2.2 * s, 2.2 * s);
+        ellipse(8 * s, 8 * s, 2.2 * s, 2.2 * s);
+        cuteFace(0, 14 * s, 0.55 * s, 1);
+      }
+
+      function drawMiniFish({ s, hovered }) {
+        skEllipse(0, 18 * s, 16 * s, 10 * s, PAL.sky, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: 10 * s, y: 18 * s },
+            { x: 20 * s, y: 12 * s },
+            { x: 20 * s, y: 24 * s },
+          ],
+          PAL.sky
+        );
+        skPoly(
+          [
+            { x: -4 * s, y: 14 * s },
+            { x: 4 * s, y: 10 * s },
+            { x: 6 * s, y: 18 * s },
+          ],
+          PAL.mint
+        );
+        noStroke();
+        fill(40, 30, 25, 230);
+        ellipse(-6 * s, 16 * s, 2.4 * s, 2.4 * s);
+      }
+
+      function drawTinyElephant({ s, hovered }) {
+        skEllipse(0, 16 * s, 18 * s, 14 * s, PAL.gray, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-12 * s, 16 * s, 6 * s, 10 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(12 * s, 16 * s, 6 * s, 10 * s, PAL.gray, STYLE.ink, 2.0);
+        skEllipse(4 * s, 20 * s, 8 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        skLine(8 * s, 20 * s, 14 * s, 24 * s, 1.6, 0.6);
+        cuteFace(0, 16 * s, 0.55 * s, 1);
+      }
+
+      function drawTinyHorse({ s, hovered }) {
+        skEllipse(0, 16 * s, 20 * s, 14 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(10 * s, 12 * s, 10 * s, 10 * s, PAL.caramel, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: 14 * s, y: 6 * s },
+            { x: 18 * s, y: 4 * s },
+            { x: 16 * s, y: 10 * s },
+          ],
+          PAL.caramel
+        );
+        cuteFace(10 * s, 12 * s, 0.45 * s, 1);
+        // mane
+        for (let i = 0; i < 5; i++) skLine(6 * s, (6 + i * 2) * s, 10 * s, (8 + i * 2) * s, 1.2, 0.5);
+      }
+
+      function drawLittleBackpack({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 14 * s },
+            { x: 12 * s, y: 14 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 14 * s, 12 * s, 10 * s, PAL.blue, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -8 * s, y: 22 * s },
+            { x: 8 * s, y: 22 * s },
+            { x: 6 * s, y: 30 * s },
+            { x: -6 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        skLine(-12 * s, 18 * s, -18 * s, 26 * s, 1.6, 0.6);
+        skLine(12 * s, 18 * s, 18 * s, 26 * s, 1.6, 0.6);
+      }
+
+      function drawNightLamp({ s, hovered }) {
+        skEllipse(0, 30 * s, 16 * s, 6 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 18 * s },
+            { x: 10 * s, y: 18 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+        noStroke();
+        fill(255, 230, 170, hovered ? 140 : 110);
+        ellipse(0, 18 * s, 22 * s, 22 * s);
+      }
+
+      function drawAlarmClock({ s, hovered }) {
+        skEllipse(0, 24 * s, 16 * s, 16 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-10 * s, 12 * s, -10 * s, 16 * s, 2.0, 0.6);
+        skLine(10 * s, 12 * s, 10 * s, 16 * s, 2.0, 0.6);
+        skLine(0, 24 * s, 0, 18 * s, 1.6, 0.6);
+        skLine(0, 24 * s, 6 * s, 24 * s, 1.6, 0.6);
+        skEllipse(0, 30 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+      }
+
+      function drawPillow({ s, hovered }) {
+        skEllipse(0, 24 * s, 18 * s, 12 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-10 * s, 24 * s, 10 * s, 24 * s, 1.2, 0.5);
+        skLine(0, 18 * s, 0, 30 * s, 1.0, 0.4);
+      }
+
+      function drawBlanketStack({ s, hovered }) {
+        for (let i = 0; i < 3; i++) {
+          const col = i === 0 ? PAL.sky : i === 1 ? PAL.mint : PAL.honey;
+          skPoly(
+            [
+              { x: -14 * s, y: (20 + i * 4) * s },
+              { x: 14 * s, y: (22 + i * 4) * s },
+              { x: 12 * s, y: (30 + i * 4) * s },
+              { x: -12 * s, y: (28 + i * 4) * s },
+            ],
+            col,
+            STYLE.ink,
+            hovered ? 2.6 : 2.0
+          );
+        }
+      }
+
+      function drawLetterSet({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 16 * s },
+            { x: 8 * s, y: 16 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-8 * s, 22 * s, 6 * s, 22 * s, 1.2, 0.5);
+        skLine(-8 * s, 26 * s, 4 * s, 26 * s, 1.2, 0.5);
+        skPoly(
+          [
+            { x: 10 * s, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 26 * s },
+            { x: 10 * s, y: 26 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      function drawPencilCup({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 18 * s },
+            { x: 10 * s, y: 18 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-6 * s, 18 * s, -8 * s, 6 * s, 1.6, 0.6);
+        skLine(0, 18 * s, 0, 4 * s, 1.6, 0.6);
+        skLine(6 * s, 18 * s, 8 * s, 8 * s, 1.6, 0.6);
+      }
+
+      function drawEraserRuler({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 22 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 8; i++) skLine((-12 + i * 3) * s, 24 * s, (-12 + i * 3) * s, 32 * s, 1.0, 0.4);
+        skPoly(
+          [
+            { x: 12 * s, y: 18 * s },
+            { x: 18 * s, y: 18 * s },
+            { x: 18 * s, y: 26 * s },
+            { x: 12 * s, y: 26 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      function drawBookmarkRibbon({ s, hovered }) {
+        skPoly(
+          [
+            { x: -8 * s, y: 12 * s },
+            { x: 8 * s, y: 12 * s },
+            { x: 8 * s, y: 34 * s },
+            { x: 0, y: 28 * s },
+            { x: -8 * s, y: 34 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-6 * s, 16 * s, 6 * s, 16 * s, 1.2, 0.5);
+      }
+
+      function drawStickerSheet({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 14 * s },
+            { x: 14 * s, y: 14 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 6; i++) {
+          const x = (-10 + (i % 3) * 10) * s;
+          const y = (18 + floor(i / 3) * 8) * s;
+          skPoly(
+            [
+              { x: x, y: y - 3 * s },
+              { x: x + 3 * s, y: y },
+              { x: x, y: y + 3 * s },
+              { x: x - 3 * s, y: y },
+            ],
+            PAL.honey,
+            STYLE.ink,
+            1.2
+          );
+        }
+      }
+
+      function drawSparkleWand({ s, hovered }) {
+        skLine(0, 10 * s, 0, 36 * s, 1.6, 0.6);
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * TWO_PI;
+          skLine(cos(a) * 3 * s, 12 * s + sin(a) * 3 * s, cos(a) * 8 * s, 12 * s + sin(a) * 8 * s, 1.4, 0.5);
+        }
+        skEllipse(0, 12 * s, 4 * s, 4 * s, PAL.honey, STYLE.ink, hovered ? 2.4 : 1.8);
+      }
+
+      function drawTinyCrown({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 28 * s },
+            { x: 12 * s, y: 28 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: 6 * s, y: 26 * s },
+            { x: 0, y: 16 * s },
+            { x: -6 * s, y: 26 * s },
+            { x: -10 * s, y: 22 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = -2; i <= 2; i++) skEllipse(i * 5 * s, 28 * s, 2.2 * s, 2.2 * s, PAL.cream, STYLE.ink, 1.0);
+      }
+
+      function drawRibbonMedal({ s, hovered }) {
+        skEllipse(0, 22 * s, 12 * s, 12 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 22 * s },
+            { x: -2 * s, y: 22 * s },
+            { x: -6 * s, y: 34 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: 2 * s, y: 22 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: 6 * s, y: 34 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 22 * s, 4 * s, 4 * s, PAL.cream, STYLE.ink, 1.2);
+      }
+
+      function drawWreath({ s, hovered }) {
+        stroke(...STYLE.inkSoft);
+        strokeWeight(hovered ? 2.6 : 2.0);
+        noFill();
+        ellipse(0, 22 * s, 22 * s, 18 * s);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TWO_PI;
+          skEllipse(cos(a) * 10 * s, 22 * s + sin(a) * 8 * s, 4 * s, 3 * s, PAL.leaf, STYLE.ink, 1.2);
+        }
+        skEllipse(0, 22 * s, 3 * s, 3 * s, PAL.red, STYLE.ink, 1.2);
+      }
+
+      function drawJarOfStars({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 16 * s, 10 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        noStroke();
+        fill(255, 240, 180, 120);
+        rect(-8 * s, 20 * s, 16 * s, 12 * s, 6);
+        textAlign(CENTER, CENTER);
+        textSize(10 * s);
+        for (let i = 0; i < 5; i++) {
+          fill(255, 220, 120, 220);
+          text("★", (-6 + i * 3) * s, (24 + (i % 2) * 3) * s);
+        }
+      }
+
+      function drawJarOfHearts({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 16 * s, 10 * s, 6 * s, PAL.gray, STYLE.ink, 2.0);
+        noStroke();
+        fill(255, 200, 210, 120);
+        rect(-8 * s, 20 * s, 16 * s, 12 * s, 6);
+        textAlign(CENTER, CENTER);
+        textSize(9 * s);
+        fill(255, 120, 150, 220);
+        for (let i = 0; i < 4; i++) text("♥", (-6 + i * 4) * s, (24 + (i % 2) * 3) * s);
+      }
+
+      function drawButtonSet({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 18 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 3; i++) {
+          skEllipse((-6 + i * 6) * s, 26 * s, 4 * s, 4 * s, PAL.blue, STYLE.ink, 1.4);
+          skLine((-6 + i * 6) * s, 26 * s, (-6 + i * 6) * s, 26 * s, 1.0, 0.4);
+        }
+      }
+
+      // =========================
+      // 第 3 页资产（81-120）
+      // =========================
+      function drawCupcake({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: 12 * s, y: 22 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 22 * s, 12 * s, 6 * s, PAL.cream, STYLE.ink, 2.0);
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 8 * s, y: 22 * s },
+            { x: -8 * s, y: 22 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(0, 10 * s, 3.2 * s, 3.2 * s, PAL.honey, STYLE.ink, 1.6);
+        noStroke();
+        fill(255, 120, 150, 140);
+        ellipse(-4 * s, 18 * s, 2.2 * s, 2.2 * s);
+        ellipse(4 * s, 18 * s, 2.2 * s, 2.2 * s);
+      }
+
+      function drawMacaronTrio({ s, hovered }) {
+        const w = hovered ? 2.6 : 2.0;
+        skEllipse(-8 * s, 24 * s, 9 * s, 5.5 * s, PAL.pink, STYLE.ink, w);
+        skEllipse(0, 22 * s, 9 * s, 5.5 * s, PAL.mint, STYLE.ink, w);
+        skEllipse(8 * s, 24 * s, 9 * s, 5.5 * s, PAL.honey, STYLE.ink, w);
+        for (const x of [-8, 0, 8]) skLine(x * s, 21 * s, x * s, 27 * s, 1.2, 0.5);
+      }
+
+      function drawWaffle({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 18 * s },
+            { x: 14 * s, y: 18 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.2);
+        noFill();
+        for (let i = 0; i < 5; i++) {
+          const x = lerp(-10 * s, 10 * s, i / 4);
+          line(x, 22 * s, x, 32 * s);
+        }
+        for (let j = 0; j < 4; j++) {
+          const y = lerp(22 * s, 32 * s, j / 3);
+          line(-10 * s, y, 10 * s, y);
+        }
+      }
+
+      function drawPieTin({ s, hovered }) {
+        skEllipse(0, 26 * s, 18 * s, 8 * s, PAL.gray, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 24 * s, 16 * s, 10 * s, PAL.red, STYLE.ink, 2.0);
+        skEllipse(0, 24 * s, 10 * s, 6 * s, PAL.cream, STYLE.ink, 1.8);
+        skLine(-10 * s, 24 * s, 10 * s, 24 * s, 1.2, 0.5);
+      }
+
+      function drawChocolateBar({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 16 * s },
+            { x: 14 * s, y: 16 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            const x = (-8 + c * 8) * s;
+            const y = (20 + r * 6) * s;
+            skLine(x - 3 * s, y - 2 * s, x + 3 * s, y + 2 * s, 1.0, 0.4);
+          }
+        }
+      }
+
+      function drawIceCreamCone({ s, hovered }) {
+        skPoly(
+          [
+            { x: -8 * s, y: 22 * s },
+            { x: 8 * s, y: 22 * s },
+            { x: 0, y: 38 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 18 * s, 12 * s, 12 * s, PAL.pink, STYLE.ink, 2.0);
+        skEllipse(0, 14 * s, 8 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        for (let i = 0; i < 5; i++) skLine((-6 + i * 3) * s, 24 * s, (-4 + i * 2) * s, 34 * s, 1.0, 0.4);
+      }
+
+      function drawPopsicle({ s, hovered }) {
+        skPoly(
+          [
+            { x: -8 * s, y: 12 * s },
+            { x: 8 * s, y: 12 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(0, 30 * s, 0, 40 * s, 2.0, 0.6);
+        noStroke();
+        fill(255, 255, 255, 120);
+        ellipse(-3 * s, 18 * s, 3 * s, 3 * s);
+      }
+
+      function drawSwirlLollipop({ s, hovered }) {
+        skLine(0, 18 * s, 0, 38 * s, 2.0, 0.6);
+        skEllipse(0, 18 * s, 12 * s, 12 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        noStroke();
+        fill(PAL.cream[0], PAL.cream[1], PAL.cream[2], 200);
+        for (let i = 0; i < 3; i++) ellipse(0, 18 * s, (10 - i * 2.2) * s, (10 - i * 2.2) * s);
+      }
+
+      function drawCroissant({ s, hovered }) {
+        skEllipse(0, 24 * s, 18 * s, 10 * s, PAL.caramel, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(-6 * s, 22 * s, 8 * s, 8 * s, PAL.caramel, STYLE.ink, 2.0);
+        skEllipse(6 * s, 22 * s, 8 * s, 8 * s, PAL.caramel, STYLE.ink, 2.0);
+        for (let i = 0; i < 6; i++) skLine((-10 + i * 4) * s, 20 * s, (-8 + i * 3) * s, 28 * s, 1.0, 0.4);
+      }
+
+      function drawToastJam({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 20 * s },
+            { x: 14 * s, y: 20 * s },
+            { x: 12 * s, y: 30 * s },
+            { x: -12 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 18 * s },
+            { x: 10 * s, y: 18 * s },
+            { x: 8 * s, y: 24 * s },
+            { x: -8 * s, y: 24 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          1.8
+        );
+        skLine(-10 * s, 24 * s, 10 * s, 24 * s, 1.2, 0.5);
+      }
+
+      function drawSandwich({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 22 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: 12 * s, y: 28 * s },
+            { x: -12 * s, y: 28 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -12 * s, y: 18 * s },
+            { x: 12 * s, y: 18 * s },
+            { x: 10 * s, y: 22 * s },
+            { x: -10 * s, y: 22 * s },
+          ],
+          PAL.leaf,
+          STYLE.ink,
+          1.8
+        );
+        skPoly(
+          [
+            { x: -12 * s, y: 28 * s },
+            { x: 12 * s, y: 28 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+      }
+
+      function drawSoupBowl({ s, hovered }) {
+        skEllipse(0, 26 * s, 18 * s, 8 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 24 * s, 16 * s, 8 * s, PAL.sky, STYLE.ink, 1.8);
+        skLine(-6 * s, 22 * s, 6 * s, 22 * s, 1.2, 0.5);
+        skLine(0, 22 * s, 0, 18 * s, 1.2, 0.5);
+        skEllipse(0, 18 * s, 2.2 * s, 2.2 * s, PAL.gray, STYLE.ink, 1.0);
+      }
+
+      function drawCherryPair({ s, hovered }) {
+        skEllipse(-6 * s, 22 * s, 6 * s, 6 * s, PAL.red, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(6 * s, 22 * s, 6 * s, 6 * s, PAL.red, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-6 * s, 22 * s, 0, 12 * s, 1.2, 0.5);
+        skLine(6 * s, 22 * s, 0, 12 * s, 1.2, 0.5);
+        skLine(0, 12 * s, 0, 8 * s, 1.2, 0.5);
+      }
+
+      function drawCinnamonRoll({ s, hovered }) {
+        skEllipse(0, 24 * s, 16 * s, 10 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        noStroke();
+        fill(210, 150, 110, 120);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * TWO_PI;
+          ellipse(cos(a) * 5 * s, 24 * s + sin(a) * 3 * s, 10 * s, 6 * s);
+        }
+        stroke(...STYLE.ink);
+        strokeWeight(1.2);
+        noFill();
+        ellipse(0, 24 * s, 14 * s, 8 * s);
+      }
+
+      function drawBaguette({ s, hovered }) {
+        skPoly(
+          [
+            { x: -18 * s, y: 24 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 18 * s, y: 22 * s },
+            { x: -16 * s, y: 28 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 6; i++) skLine((-14 + i * 5) * s, 22 * s, (-12 + i * 5) * s, 26 * s, 1.0, 0.4);
+      }
+
+      function drawCheeseWedge({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 30 * s },
+            { x: 12 * s, y: 30 * s },
+            { x: 0, y: 14 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 4; i++) skEllipse((-6 + i * 4) * s, 24 * s, 2.2 * s, 2.2 * s, STYLE.bg, STYLE.ink, 1.0);
+      }
+
+      function drawButterPat({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: 12 * s, y: 22 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -8 * s, y: 24 * s },
+            { x: 8 * s, y: 24 * s },
+            { x: 6 * s, y: 28 * s },
+            { x: -6 * s, y: 28 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          1.6
+        );
+      }
+
+      function drawHoneyDipper({ s, hovered }) {
+        skLine(0, 8 * s, 0, 36 * s, hovered ? 2.6 : 2.0, 0.7);
+        skEllipse(0, 12 * s, 10 * s, 10 * s, PAL.honey, STYLE.ink, 2.0);
+        for (let i = -2; i <= 2; i++) skLine(i * 2.2 * s, 8 * s, i * 2.2 * s, 16 * s, 1.0, 0.4);
+      }
+
+      function drawSugarCubes({ s, hovered }) {
+        const w = hovered ? 2.6 : 2.0;
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: -2 * s, y: 22 * s },
+            { x: -2 * s, y: 32 * s },
+            { x: -12 * s, y: 32 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: 0, y: 18 * s },
+            { x: 10 * s, y: 18 * s },
+            { x: 10 * s, y: 28 * s },
+            { x: 0, y: 28 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: -6 * s, y: 12 * s },
+            { x: 4 * s, y: 12 * s },
+            { x: 4 * s, y: 22 * s },
+            { x: -6 * s, y: 22 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          w
+        );
+      }
+
+      function drawTeaCupSaucer({ s, hovered }) {
+        skEllipse(0, 30 * s, 18 * s, 6 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 18 * s },
+            { x: 8 * s, y: 18 * s },
+            { x: 8 * s, y: 28 * s },
+            { x: -10 * s, y: 28 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+        skEllipse(10 * s, 22 * s, 5 * s, 5 * s, PAL.sky, STYLE.ink, 1.8);
+        skEllipse(10 * s, 22 * s, 2.2 * s, 2.2 * s, STYLE.bg, STYLE.bg, 0);
+      }
+
+      function drawStripedMug({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 8 * s, y: 14 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        for (let i = 0; i < 4; i++) skLine((-8 + i * 5) * s, 16 * s, (-8 + i * 5) * s, 28 * s, 1.2, 0.5);
+        skEllipse(8 * s, 20 * s, 6 * s, 7 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(8 * s, 20 * s, 2.6 * s, 3.6 * s, STYLE.bg, STYLE.bg, 0);
+      }
+
+      function drawCookieStack({ s, hovered }) {
+        for (let i = 0; i < 3; i++) skEllipse(0, (28 - i * 5) * s, 16 * s, 5 * s, PAL.caramel, STYLE.ink, hovered ? 2.6 : 2.0);
+        for (let k = 0; k < 6; k++) skEllipse((-6 + random(12)) * s, (24 - random(10)) * s, 1.6 * s, 1.6 * s, PAL.cocoa, STYLE.ink, 0.8);
+      }
+
+      function drawPretzel({ s, hovered }) {
+        stroke(...STYLE.ink);
+        strokeWeight(hovered ? 2.8 : 2.2);
+        noFill();
+        arc(-6 * s, 22 * s, 12 * s, 12 * s, 0, PI);
+        arc(6 * s, 22 * s, 12 * s, 12 * s, 0, PI);
+        arc(0, 26 * s, 18 * s, 14 * s, PI, TWO_PI);
+      }
+
+      function drawBubbleTea({ s, hovered }) {
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -8 * s, y: 22 * s },
+            { x: 8 * s, y: 22 * s },
+            { x: 8 * s, y: 32 * s },
+            { x: -8 * s, y: 32 * s },
+          ],
+          [200, 140, 110],
+          STYLE.ink,
+          1.6
+        );
+        skLine(8 * s, 14 * s, 14 * s, 8 * s, 1.6, 0.6);
+        skEllipse(14 * s, 8 * s, 4 * s, 3 * s, PAL.cream, STYLE.ink, 1.6);
+        noStroke();
+        fill(255, 255, 255, 160);
+        for (let i = 0; i < 6; i++) ellipse((-6 + (i % 3) * 6) * s, (26 + floor(i / 3) * 4) * s, 2.2 * s, 2.2 * s);
+      }
+
+      // =========================
+      // 资产列表（分页）
+      // =========================
+      const ASSETS_PAGE_1 = [
+        { id: "sheep", nameCN: "绵羊", nameEN: "Sheep", draw: drawSheep },
+        { id: "puppy", nameCN: "小狗", nameEN: "Puppy", draw: drawPuppy },
+        { id: "kitty", nameCN: "小猫", nameEN: "Kitty", draw: drawKitty },
+        { id: "bunny", nameCN: "小兔子", nameEN: "Bunny", draw: drawBunny },
+        { id: "duckling", nameCN: "小鸭子", nameEN: "Duckling", draw: drawDuckling },
+        { id: "hedgehog", nameCN: "小刺猬", nameEN: "Hedgehog", draw: drawHedgehog },
+        { id: "bear", nameCN: "小熊", nameEN: "Bear", draw: drawBear },
+        { id: "fox", nameCN: "小狐狸", nameEN: "Fox", draw: drawFox },
+        { id: "penguin", nameCN: "企鹅", nameEN: "Penguin", draw: drawPenguin },
+        { id: "bird", nameCN: "小鸟", nameEN: "Bird", draw: drawBird },
+        { id: "snail", nameCN: "蜗牛", nameEN: "Snail", draw: drawSnail },
+        { id: "caterpillar", nameCN: "毛毛虫", nameEN: "Caterpillar", draw: drawCaterpillar },
+        { id: "pottedPlant", nameCN: "小花盆植物", nameEN: "Potted Plant", draw: drawPottedPlant },
+        { id: "mushroomHut", nameCN: "蘑菇屋", nameEN: "Mushroom Hut", draw: drawMushroomHut },
+        { id: "giftBox", nameCN: "礼物盒", nameEN: "Gift Box", draw: drawGiftBox },
+        { id: "hotAirBalloon", nameCN: "热气球", nameEN: "Hot Air Balloon", draw: drawHotAirBalloon },
+        { id: "kite", nameCN: "风筝", nameEN: "Kite", draw: drawKite },
+        { id: "cocoaMug", nameCN: "热可可杯", nameEN: "Cocoa Mug", draw: drawCocoaMug },
+        { id: "postbox", nameCN: "邮筒", nameEN: "Postbox", draw: drawPostbox },
+        { id: "benchLights", nameCN: "长椅+灯串", nameEN: "Bench + Lights", draw: drawBenchFairyLights },
+
+        { id: "bakerySign", nameCN: "面包店招牌", nameEN: "Bakery Sign", draw: drawBakerySign },
+        { id: "candyCart", nameCN: "糖果车", nameEN: "Candy Cart", draw: drawCandyCart },
+        { id: "tent", nameCN: "小帐篷", nameEN: "Tent", draw: drawTent },
+        { id: "picnicBasket", nameCN: "野餐篮", nameEN: "Picnic Basket", draw: drawPicnicBasket },
+        { id: "windChime", nameCN: "风铃", nameEN: "Wind Chime", draw: drawWindChime },
+        { id: "paperPlane", nameCN: "纸飞机", nameEN: "Paper Plane", draw: drawPaperPlane },
+        { id: "balloons", nameCN: "气球束", nameEN: "Balloons", draw: drawBalloons },
+        { id: "directionSign", nameCN: "小路牌", nameEN: "Direction Sign", draw: drawDirectionSign },
+        { id: "mailbox", nameCN: "小屋式邮箱", nameEN: "Mailbox", draw: drawMailbox },
+        { id: "fountain", nameCN: "小喷泉", nameEN: "Fountain", draw: drawFountain },
+        { id: "littleBridge", nameCN: "小桥", nameEN: "Little Bridge", draw: drawLittleBridge },
+        { id: "flowerBush", nameCN: "路边花丛", nameEN: "Flower Bush", draw: drawFlowerBush },
+        { id: "cocoaStall", nameCN: "热可可摊位", nameEN: "Cocoa Stall", draw: drawCocoaStall },
+        { id: "bookStand", nameCN: "小书摊", nameEN: "Book Stand", draw: drawBookStand },
+        { id: "stringLights", nameCN: "灯串", nameEN: "String Lights", draw: drawStringLights },
+        { id: "umbrella", nameCN: "雨伞", nameEN: "Umbrella", draw: drawUmbrella },
+        { id: "pinwheel", nameCN: "风车玩具", nameEN: "Pinwheel", draw: drawPinwheel },
+        { id: "stickerBadge", nameCN: "贴纸徽章", nameEN: "Sticker Badge", draw: drawStickerBadge },
+        { id: "clockTower", nameCN: "小钟楼", nameEN: "Clock Tower", draw: drawClockTower },
+        { id: "pawPrints", nameCN: "猫爪脚印", nameEN: "Paw Prints", draw: drawPawPrints },
+      ];
+
+      // 备注：第 2 页按你确认的清单（41-80）。其中部分资产复用已有的通用绘制方式，保持“手绘暖萌”风格。
+      const ASSETS_PAGE_2 = [
+        { id: "breadLoaf", nameCN: "小面包", nameEN: "Bread Loaf", draw: drawBreadLoaf },
+        { id: "milkBottle", nameCN: "牛奶瓶", nameEN: "Milk Bottle", draw: drawMilkBottle },
+        { id: "jamJar", nameCN: "果酱罐", nameEN: "Jam Jar", draw: drawJamJar },
+        { id: "honeyJar", nameCN: "蜂蜜罐", nameEN: "Honey Jar", draw: drawHoneyJar },
+        { id: "strawberryCake", nameCN: "草莓蛋糕", nameEN: "Strawberry Cake", draw: drawStrawberryCake },
+        { id: "cookieTin", nameCN: "曲奇罐", nameEN: "Cookie Tin", draw: drawCookieTin },
+        { id: "teapot", nameCN: "茶壶", nameEN: "Teapot", draw: drawTeapot },
+        { id: "donutPlate", nameCN: "甜甜圈小碟", nameEN: "Donut Plate", draw: drawDonutPlate },
+        { id: "cactusPot", nameCN: "盆栽仙人掌", nameEN: "Cactus Pot", draw: drawCactusPot },
+        { id: "sunflower", nameCN: "小向日葵", nameEN: "Sunflower", draw: drawSunflower },
+        { id: "wateringCan", nameCN: "小水壶", nameEN: "Watering Can", draw: drawWateringCan },
+        { id: "bouquet", nameCN: "手提小花束", nameEN: "Flower Bouquet", draw: drawFlowerBouquet },
+        { id: "paperLantern", nameCN: "小灯笼", nameEN: "Paper Lantern", draw: drawPaperLantern },
+        { id: "candle", nameCN: "小蜡烛", nameEN: "Candle", draw: drawCandle },
+        { id: "starOrnament", nameCN: "星星挂饰", nameEN: "Star Ornament", draw: drawStarOrnament },
+        { id: "heartOrnament", nameCN: "爱心挂饰", nameEN: "Heart Ornament", draw: drawHeartOrnament },
+        { id: "photoFrame", nameCN: "小相框", nameEN: "Photo Frame", draw: drawPhotoFrame },
+        { id: "wallPoster", nameCN: "小挂画", nameEN: "Wall Poster", draw: drawWallPoster },
+        { id: "musicBox", nameCN: "小音乐盒", nameEN: "Music Box", draw: drawMusicBox },
+        { id: "bell", nameCN: "小铃铛", nameEN: "Bell", draw: drawBell },
+        { id: "key", nameCN: "小钥匙", nameEN: "Key", draw: drawKey },
+        { id: "padlock", nameCN: "小锁", nameEN: "Padlock", draw: drawPadlock },
+        { id: "envelopeSticker", nameCN: "信封+贴纸", nameEN: "Envelope + Sticker", draw: drawEnvelopeSticker },
+        { id: "postcard", nameCN: "明信片", nameEN: "Postcard", draw: drawPostcard },
+        { id: "mapScroll", nameCN: "小地图卷轴", nameEN: "Map Scroll", draw: drawMapScroll },
+        { id: "compass", nameCN: "指南针", nameEN: "Compass", draw: drawCompass },
+        { id: "spyglass", nameCN: "小望远镜", nameEN: "Spyglass", draw: drawSpyglass },
+        { id: "camera", nameCN: "小相机", nameEN: "Camera", draw: drawCamera },
+        { id: "radio", nameCN: "小收音机", nameEN: "Radio", draw: drawRadio },
+        { id: "guitar", nameCN: "小吉他", nameEN: "Guitar", draw: drawGuitar },
+        { id: "balloonDog", nameCN: "气球狗玩具", nameEN: "Balloon Dog", draw: drawBalloonDog },
+        { id: "toyBlocks", nameCN: "小积木", nameEN: "Toy Blocks", draw: drawToyBlocks },
+        { id: "paperBoat", nameCN: "纸船", nameEN: "Paper Boat", draw: drawPaperBoat },
+        { id: "sailboat", nameCN: "小帆船", nameEN: "Sailboat", draw: drawSailboat },
+        { id: "rainBoots", nameCN: "小雨靴", nameEN: "Rain Boots", draw: drawRainBoots },
+        { id: "scarf", nameCN: "围巾", nameEN: "Scarf", draw: drawScarf },
+        { id: "beanie", nameCN: "毛线帽", nameEN: "Knit Beanie", draw: drawBeanie },
+        { id: "mittens", nameCN: "小手套", nameEN: "Mittens", draw: drawMittens },
+        { id: "tinySnowman", nameCN: "小雪人", nameEN: "Tiny Snowman", draw: drawTinySnowman },
+        { id: "pumpkinLantern", nameCN: "小南瓜灯", nameEN: "Pumpkin Lantern", draw: drawPumpkinLantern },
+      ];
+
+      // 第 3 页（81-120）：偏“甜点/食物 + 温暖小物/手工感”
+      const ASSETS_PAGE_3 = [
+        { id: "cupcake", nameCN: "纸杯蛋糕", nameEN: "Cupcake", draw: drawCupcake },
+        { id: "macaronTrio", nameCN: "马卡龙三枚", nameEN: "Macarons", draw: drawMacaronTrio },
+        { id: "waffle", nameCN: "华夫饼", nameEN: "Waffle", draw: drawWaffle },
+        { id: "pieTin", nameCN: "派盘", nameEN: "Pie Tin", draw: drawPieTin },
+        { id: "chocolateBar", nameCN: "巧克力块", nameEN: "Chocolate Bar", draw: drawChocolateBar },
+        { id: "iceCreamCone", nameCN: "冰淇淋甜筒", nameEN: "Ice Cream Cone", draw: drawIceCreamCone },
+        { id: "popsicle", nameCN: "冰棍", nameEN: "Popsicle", draw: drawPopsicle },
+        { id: "swirlLollipop", nameCN: "螺旋棒棒糖", nameEN: "Swirl Lollipop", draw: drawSwirlLollipop },
+        { id: "croissant", nameCN: "牛角包", nameEN: "Croissant", draw: drawCroissant },
+        { id: "toastJam", nameCN: "果酱吐司", nameEN: "Toast + Jam", draw: drawToastJam },
+        { id: "sandwich", nameCN: "三明治", nameEN: "Sandwich", draw: drawSandwich },
+        { id: "soupBowl", nameCN: "汤碗", nameEN: "Soup Bowl", draw: drawSoupBowl },
+        { id: "cherryPair", nameCN: "樱桃一对", nameEN: "Cherries", draw: drawCherryPair },
+        { id: "cinnamonRoll", nameCN: "肉桂卷", nameEN: "Cinnamon Roll", draw: drawCinnamonRoll },
+        { id: "baguette", nameCN: "法棍", nameEN: "Baguette", draw: drawBaguette },
+        { id: "cheeseWedge", nameCN: "奶酪三角", nameEN: "Cheese Wedge", draw: drawCheeseWedge },
+        { id: "butterPat", nameCN: "黄油块", nameEN: "Butter Pat", draw: drawButterPat },
+        { id: "honeyDipper", nameCN: "蜂蜜棒", nameEN: "Honey Dipper", draw: drawHoneyDipper },
+        { id: "sugarCubes", nameCN: "方糖堆", nameEN: "Sugar Cubes", draw: drawSugarCubes },
+        { id: "teaCupSaucer", nameCN: "茶杯+碟", nameEN: "Teacup + Saucer", draw: drawTeaCupSaucer },
+        { id: "stripedMug", nameCN: "条纹马克杯", nameEN: "Striped Mug", draw: drawStripedMug },
+        { id: "cookieStack", nameCN: "曲奇叠塔", nameEN: "Cookie Stack", draw: drawCookieStack },
+        { id: "pretzel", nameCN: "碱水结", nameEN: "Pretzel", draw: drawPretzel },
+        { id: "bubbleTea", nameCN: "珍珠奶茶", nameEN: "Bubble Tea", draw: drawBubbleTea },
+        { id: "nightLamp", nameCN: "小夜灯", nameEN: "Night Lamp", draw: drawNightLamp },
+        { id: "alarmClock", nameCN: "小闹钟", nameEN: "Alarm Clock", draw: drawAlarmClock },
+        { id: "pillow", nameCN: "抱枕", nameEN: "Pillow", draw: drawPillow },
+        { id: "blanketStack", nameCN: "叠放毯子", nameEN: "Blanket Stack", draw: drawBlanketStack },
+        { id: "letterSet", nameCN: "信纸套装", nameEN: "Letter Set", draw: drawLetterSet },
+        { id: "pencilCup", nameCN: "笔筒", nameEN: "Pencil Cup", draw: drawPencilCup },
+        { id: "eraserRuler", nameCN: "橡皮+尺子", nameEN: "Eraser + Ruler", draw: drawEraserRuler },
+        { id: "bookmarkRibbon", nameCN: "丝带书签", nameEN: "Ribbon Bookmark", draw: drawBookmarkRibbon },
+        { id: "stickerSheet", nameCN: "贴纸页", nameEN: "Sticker Sheet", draw: drawStickerSheet },
+        { id: "sparkleWand", nameCN: "星星魔法棒", nameEN: "Sparkle Wand", draw: drawSparkleWand },
+        { id: "tinyCrown", nameCN: "小皇冠", nameEN: "Tiny Crown", draw: drawTinyCrown },
+        { id: "ribbonMedal", nameCN: "缎带奖章", nameEN: "Ribbon Medal", draw: drawRibbonMedal },
+        { id: "wreath", nameCN: "小花环", nameEN: "Wreath", draw: drawWreath },
+        { id: "jarOfStars", nameCN: "星星玻璃罐", nameEN: "Jar of Stars", draw: drawJarOfStars },
+        { id: "jarOfHearts", nameCN: "爱心玻璃罐", nameEN: "Jar of Hearts", draw: drawJarOfHearts },
+        { id: "buttonSet", nameCN: "纽扣组", nameEN: "Buttons", draw: drawButtonSet },
+      ];
+
+      const PAGES = [ASSETS_PAGE_1, ASSETS_PAGE_2, ASSETS_PAGE_3];
+
+      // =========================
+      // 网格渲染 + 交互
+      // =========================
+      const LAYOUT = { assetScale: 0.86, assetLift: -4 };
+
+      let grid = {
+        cols: 8,
+        rows: 5,
+        pad: 18,
+        labelH: 34,
+        headerH: 78,
+        footerH: 26,
+      };
+      let cells = [];
+      let hoverIndex = -1;
+      let pageIndex = 0;
+      let pageSeeds = PAGES.map(() => []);
+      let headerButtons = { prev: null, next: null };
+
+      function pageAssets() {
+        return PAGES[pageIndex];
+      }
+
+      function clampPage() {
+        pageIndex = constrain(pageIndex, 0, PAGES.length - 1);
+      }
+
+      function switchPage(delta) {
+        pageIndex = constrain(pageIndex + delta, 0, PAGES.length - 1);
+        hoverIndex = -1;
+        buildGrid();
+      }
+
+      function chooseCols() {
+        if (windowWidth >= 1100) return 8;
+        if (windowWidth >= 860) return 6;
+        if (windowWidth >= 640) return 5;
+        return 4;
+      }
+
+      function buildGrid() {
+        grid.cols = chooseCols();
+        const assets = pageAssets();
+        grid.rows = ceil(assets.length / grid.cols);
+        cells = [];
+        const seedBank = pageSeeds[pageIndex];
+        for (let i = 0; i < assets.length; i++) {
+          if (seedBank[i] === undefined) seedBank[i] = floor(random(1e9));
+          cells.push({ seed: seedBank[i] });
+        }
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        pixelDensity(1);
+        textFont("system-ui, -apple-system, Segoe UI, Roboto, sans-serif");
+        clampPage();
+        buildGrid();
+      }
+
+      function drawBackground() {
+        background(...STYLE.bg);
+        // soft vignette
+        noStroke();
+        for (let i = 6; i >= 1; i--) {
+          fill(220, 190, 150, 6 * i);
+          ellipse(width * 0.3, height * 0.2, 320 * i, 220 * i);
+          fill(170, 210, 235, 5 * i);
+          ellipse(width * 0.8, height * 0.2, 320 * i, 220 * i);
+        }
+      }
+
+      function drawHeader() {
+        noStroke();
+        fill(255, 255, 255, 160);
+        rect(0, 0, width, grid.headerH);
+        fill(...STYLE.ink);
+        textAlign(LEFT, TOP);
+        textSize(18);
+        text("温暖可爱资产画册（手绘风）", 16, 14);
+        fill(...STYLE.inkSoft);
+        textSize(12);
+        const hint =
+          "Hover 高亮，Click 单格重掷细节；←/→ 翻页\n（第 3 页为新增 40 个资产）";
+        text(hint, 16, 40, max(220, width - 260), 999);
+
+        // page indicator + buttons
+        const btnH = 30;
+        const btnW = 92;
+        const y = 12;
+        const nextX = width - 16 - btnW;
+        const prevX = nextX - 10 - btnW;
+        headerButtons.prev = { x: prevX, y, w: btnW, h: btnH };
+        headerButtons.next = { x: nextX, y, w: btnW, h: btnH };
+
+        const canPrev = pageIndex > 0;
+        const canNext = pageIndex < PAGES.length - 1;
+
+        drawHeaderButton(headerButtons.prev, "上一页", canPrev);
+        drawHeaderButton(headerButtons.next, "下一页", canNext);
+
+        fill(...STYLE.inkSoft);
+        textAlign(RIGHT, CENTER);
+        textSize(12);
+        text(`Page ${pageIndex + 1}/${PAGES.length}`, prevX - 10, y + btnH / 2);
+
+        // reset text defaults for cells
+        textAlign(CENTER, TOP);
+      }
+
+      function drawHeaderButton(r, label, enabled) {
+        const hovered = mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
+        noStroke();
+        const base = enabled ? [255, 255, 255, 210] : [255, 255, 255, 120];
+        const hi = enabled && hovered ? [255, 220, 150, 160] : null;
+        fill(...base);
+        rect(r.x, r.y, r.w, r.h, 999);
+        if (hi) {
+          fill(...hi);
+          rect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 999);
+        }
+        fill(enabled ? STYLE.ink[0] : STYLE.inkSoft[0], enabled ? STYLE.ink[1] : STYLE.inkSoft[1], enabled ? STYLE.ink[2] : STYLE.inkSoft[2], enabled ? 255 : 140);
+        textAlign(CENTER, CENTER);
+        textSize(12);
+        text(label, r.x + r.w / 2, r.y + r.h / 2);
+      }
+
+      function cellRect(idx) {
+        const contentTop = grid.headerH + grid.pad;
+        const contentH = height - grid.headerH - grid.footerH - grid.pad * 2;
+        const cw = (width - grid.pad * (grid.cols + 1)) / grid.cols;
+        const ch = (contentH - grid.pad * (grid.rows - 1)) / grid.rows;
+        const col = idx % grid.cols;
+        const row = floor(idx / grid.cols);
+        const x = grid.pad + col * (cw + grid.pad);
+        const y = contentTop + row * (ch + grid.pad);
+        return { x, y, w: cw, h: ch };
+      }
+
+      function drawCell(idx) {
+        const assets = pageAssets();
+        const asset = assets[idx];
+        const r = cellRect(idx);
+        const hovered = idx === hoverIndex;
+        const rounding = 16;
+
+        // card
+        noStroke();
+        fill(...STYLE.card);
+        rect(r.x, r.y, r.w, r.h, rounding);
+        if (hovered) {
+          noFill();
+          stroke(255, 210, 140, 220);
+          strokeWeight(3);
+          rect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3, rounding);
+          noStroke();
+          fill(255, 220, 150, 60);
+          rect(r.x + 6, r.y + 6, r.w - 12, r.h - 12, rounding - 6);
+        }
+
+        // asset area
+        const labelH = grid.labelH;
+        const ax = r.x + r.w / 2;
+        const ay = r.y + (r.h - labelH) / 2 - 4;
+        const maxSize = min(r.w, r.h - labelH) * 0.78;
+
+        push();
+        translate(ax, ay);
+        translate(0, LAYOUT.assetLift);
+        const s = (maxSize / 80) * LAYOUT.assetScale; // canonical box ~80px
+        randomSeed(cells[idx].seed);
+        noiseSeed(cells[idx].seed);
+        // subtle wobble to keep life without re-randomizing
+        translate(0, sin(frameCount * 0.02 + idx) * 0.45);
+        asset.draw({ s, hovered });
+        pop();
+
+        // labels
+        const lx = r.x + r.w / 2;
+        const ly = r.y + r.h - labelH + 4;
+        textAlign(CENTER, TOP);
+        fill(...STYLE.ink);
+        textSize(12);
+        text(asset.nameCN, lx, ly);
+        fill(...STYLE.inkSoft);
+        textSize(10.5);
+        text(asset.nameEN, lx, ly + 14);
+      }
+
+      function draw() {
+        drawBackground();
+        drawHeader();
+
+        hoverIndex = hitTest(mouseX, mouseY);
+        const assets = pageAssets();
+        for (let i = 0; i < assets.length; i++) drawCell(i);
+
+        // footer
+        fill(0, 0, 0, 0);
+      }
+
+      function hitTest(mx, my) {
+        if (my < grid.headerH) return -1;
+        const assets = pageAssets();
+        for (let i = 0; i < assets.length; i++) {
+          const r = cellRect(i);
+          if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) return i;
+        }
+        return -1;
+      }
+
+      function mousePressed() {
+        // header buttons first
+        if (headerButtons.prev) {
+          const r = headerButtons.prev;
+          const hit = mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
+          if (hit && pageIndex > 0) return switchPage(-1);
+        }
+        if (headerButtons.next) {
+          const r = headerButtons.next;
+          const hit = mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
+          if (hit && pageIndex < PAGES.length - 1) return switchPage(1);
+        }
+
+        const idx = hitTest(mouseX, mouseY);
+        if (idx >= 0) {
+          const newSeed = floor(random(1e9));
+          cells[idx].seed = newSeed;
+          pageSeeds[pageIndex][idx] = newSeed;
+        }
+      }
+
+      function keyPressed() {
+        if (keyCode === RIGHT_ARROW) switchPage(1);
+        if (keyCode === LEFT_ARROW) switchPage(-1);
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        buildGrid();
+      }
+    </script>
+  </body>
+</html>
+

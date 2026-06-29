@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>手绘牧场 - 动物与松林</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #222; }
+        canvas { display: block; }
+        .ui {
+            position: absolute; bottom: 20px; left: 20px;
+            color: rgba(255,255,255,0.7);
+            font-family: sans-serif; font-size: 12px;
+            pointer-events: none; line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="ui">
+        <b>手绘牧场：</b><br>
+        左右移动鼠标：太阳位置 (阴影方向)<br>
+        上下移动鼠标：时间流逝 (昼夜交替)<br>
+        点击屏幕：重新生成场景
+    </div>
+
+<script>
+// ==================== 核心配置与色彩 ====================
+let assets = [];
+let time = { sunX: 0, dayP: 0, isNight: false, shadowCol: [0,0,0,50] };
+
+const PALETTE = {
+    grassDay: [140, 180, 100], grassNight: [20, 40, 30],
+    skyDay: [135, 206, 235], skyNight: [10, 15, 30],
+    pineDay: [45, 85, 55], pineNight: [15, 30, 20],
+    sheepDay: [245, 245, 240], dogDay: [180, 120, 70]
+};
+
+// ==================== 工具函数 (手绘感核心) ====================
+function subdivideLine(x1, y1, x2, y2, segments=3, jitter=1.2) {
+    let pts = [];
+    for(let i=0; i<=segments; i++) {
+        let t = i/segments;
+        let x = lerp(x1, x2, t);
+        let y = lerp(y1, y2, t);
+        if(i>0 && i<segments) {
+            x += random(-jitter, jitter);
+            y += random(-jitter, jitter);
+        }
+        pts.push(x, y);
+    }
+    return pts;
+}
+
+function subdividePolygon(vertices, segments=2, jitter=1.0) {
+    let pts = [];
+    for(let i=0; i<vertices.length; i++) {
+        let p1 = vertices[i], p2 = vertices[(i+1)%vertices.length];
+        for(let j=0; j<segments; j++) {
+            let t = j/segments;
+            let x = lerp(p1.x, p2.x, t);
+            let y = lerp(p1.y, p2.y, t);
+            if(j>0) { x += random(-jitter, jitter); y += random(-jitter, jitter); }
+            pts.push(x, y);
+        }
+    }
+    return pts;
+}
+
+function drawSketchyPoly(pts, strokeCol, fillCol, weight=1.5) {
+    if(fillCol) fill(...fillCol); else noFill();
+    if(strokeCol) { stroke(...strokeCol); strokeWeight(weight); } else noStroke();
+    beginShape();
+    for(let i=0; i<pts.length; i+=2) vertex(pts[i], pts[i+1]);
+    endShape(CLOSE);
+}
+
+function shadowProj(x, objY, groundY) {
+    let h = groundY - objY;
+    let angle = map(mouseX, 0, width, -PI/3, PI/3);
+    return { x: x + tan(angle) * h, y: groundY };
+}
+
+function lerpArr(a, b, t) { return a.map((v, i) => v + (b[i] - v) * t); }
+
+// ==================== 资产类 ====================
+
+// 1. 塔状松树
+class PineTree {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.h = random(60, 100);
+        this.layers = floor(random(3, 5));
+        this.sc = 0; this.v = 0; // 弹簧动画
+        this.initGeom();
+    }
+    initGeom() {
+        this.trunkW = 6;
+        this.trunkH = this.h * 0.2;
+    }
+    update() {
+        let force = (1 - this.sc) * 0.1;
+        this.v = (this.v + force) * 0.8;
+        this.sc += this.v;
+    }
+    drawShadow() {
+        if(time.isNight) return;
+        let tip = shadowProj(this.x, this.y - this.h * this.sc, this.y);
+        let baseL = shadowProj(this.x - 20, this.y, this.y);
+        let baseR = shadowProj(this.x + 20, this.y, this.y);
+        fill(...time.shadowCol); noStroke();
+        beginShape();
+        vertex(this.x - 5, this.y); vertex(baseL.x, baseL.y);
+        vertex(tip.x, tip.y); vertex(baseR.x, baseR.y);
+        vertex(this.x + 5, this.y);
+        endShape(CLOSE);
+    }
+    draw() {
+        push(); translate(this.x, this.y); scale(1, this.sc); translate(-this.x, -this.y);
+        let dim = time.isNight ? 0.3 : 1.0;
+        let c = lerpArr(PALETTE.pineDay, [10,20,10], 1-dim);
+        
+        // 树干
+        fill(60 * dim, 40 * dim, 20 * dim); noStroke();
+        rect(this.x - this.trunkW/2, this.y - this.trunkH, this.trunkW, this.trunkH);
+
+        // 叶子层
+        for(let i=0; i<this.layers; i++) {
+            let ty = this.y - this.trunkH - (i * (this.h/this.layers) * 0.7);
+            let tw = (this.h * 0.5) * (1 - (i/this.layers)*0.8);
+            let th = (this.h/this.layers) * 1.5;
+            let pts = subdividePolygon([{x:this.x-tw/2, y:ty}, {x:this.x+tw/2, y:ty}, {x:this.x, y:ty-th}], 2, 1);
+            drawSketchyPoly(pts, [20,40,20], c);
+        }
+        pop();
+    }
+}
+
+// 2. 蓬松绵羊
+class Sheep {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.w = random(20, 28);
+        this.sc = 0; this.v = 0;
+        this.phase = random(TWO_PI);
+    }
+    update() {
+        let force = (1 - this.sc) * 0.1;
+        this.v = (this.v + force) * 0.82;
+        this.sc += this.v;
+        this.jump = sin(frameCount * 0.1 + this.phase) * 2;
+    }
+    drawShadow() {
+        if(time.isNight) return;
+        fill(...time.shadowCol); noStroke();
+        ellipse(this.x + (mouseX-width/2)*0.05, this.y, this.w * 1.5, 8);
+    }
+    draw() {
+        push(); translate(this.x, this.y + this.jump); scale(this.sc); translate(-this.x, -this.y);
+        let dim = time.isNight ? 0.4 : 1.0;
+        
+        // 腿
+        stroke(30); strokeWeight(2);
+        line(this.x-6, this.y, this.x-6, this.y-5); line(this.x+6, this.y, this.x+6, this.y-5);
+        
+        // 身体 (云朵状)
+        let pts = [];
+        for(let a=0; a<TWO_PI; a+=PI/4) {
+            let r = this.w/2 + sin(a*3 + frameCount*0.05)*2;
+            pts.push({x: this.x + cos(a)*r, y: this.y - 12 + sin(a)*r*0.6});
+        }
+        drawSketchyPoly(subdividePolygon(pts, 3, 1), [200,200,200], [255*dim, 255*dim, 250*dim]);
+        
+        // 头
+        fill(40*dim); noStroke();
+        ellipse(this.x + this.w/2 - 2, this.y - 14, 8, 7);
+        pop();
+    }
+}
+
+// 3. 摇尾巴的小狗
+class Dog {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.sc = 0; this.v = 0;
+    }
+    update() {
+        let force = (1 - this.sc) * 0.1;
+        this.v = (this.v + force) * 0.85;
+        this.sc += this.v;
+        this.tailWag = sin(frameCount * 0.3) * PI/4;
+    }
+    drawShadow() {
+        if(time.isNight) return;
+        fill(...time.shadowCol); noStroke();
+        ellipse(this.x, this.y, 25, 6);
+    }
+    draw() {
+        push(); translate(this.x, this.y); scale(this.sc); translate(-this.x, -this.y);
+        let dim = time.isNight ? 0.3 : 1.0;
+        let c = [180*dim, 120*dim, 60*dim];
+        
+        // 尾巴
+        stroke(...c); strokeWeight(3);
+        let tx = this.x - 8, ty = this.y - 8;
+        line(tx, ty, tx + cos(PI+this.tailWag)*8, ty + sin(PI+this.tailWag)*8);
+
+        // 身体
+        noStroke(); fill(...c);
+        rect(this.x - 8, this.y - 12, 16, 8, 2);
+        // 腿
+        stroke(...c); strokeWeight(2);
+        line(this.x-6, this.y, this.x-6, this.y-4); line(this.x+6, this.y, this.x+6, this.y-4);
+        
+        // 头
+        noStroke();
+        rect(this.x + 6, this.y - 18, 8, 7, 2);
+        // 耳朵
+        triangle(this.x+7, this.y-18, this.x+10, this.y-18, this.x+8, this.y-22);
+        pop();
+    }
+}
+
+// ==================== 主程序 ====================
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    generateScene();
+}
+
+function generateScene() {
+    assets = [];
+    // 生成松林
+    for(let i=0; i<15; i++) assets.push(new PineTree(random(width), random(height*0.2, height*0.9)));
+    // 生成绵羊
+    for(let i=0; i<10; i++) assets.push(new Sheep(random(width), random(height*0.5, height*0.95)));
+    // 生成小狗
+    for(let i=0; i<3; i++) assets.push(new Dog(random(width), random(height*0.6, height*0.95)));
+    
+    // 按Y排序保证遮挡正确
+    assets.sort((a, b) => a.y - b.y);
+}
+
+function draw() {
+    // 昼夜系统
+    let dayT = map(mouseY, 0, height, 0, 1, true);
+    time.isNight = dayT > 0.7;
+    let sky = lerpArr(PALETTE.skyDay, PALETTE.skyNight, dayT);
+    let grass = lerpArr(PALETTE.grassDay, PALETTE.grassNight, dayT);
+    
+    background(...sky);
+    
+    // 画地面
+    noStroke(); fill(...grass);
+    rect(0, height*0.3, width, height*0.7);
+    
+    // 绘制装饰性小草
+    stroke(grass[0]-20, grass[1]-20, grass[2]-20, 100);
+    for(let i=0; i<100; i+=10) {
+        let gx = (noise(i)*width);
+        let gy = height*0.3 + (noise(i+1)*height*0.7);
+        line(gx, gy, gx+2, gy-4);
+    }
+
+    // 更新和绘制资产
+    for(let a of assets) a.update();
+    for(let a of assets) a.drawShadow();
+    for(let a of assets) a.draw();
+}
+
+function mousePressed() {
+    generateScene();
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    generateScene();
+}
+</script>
+</body>
+</html>

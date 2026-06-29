@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D 点-线 闪烁风格选择</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #050505; color: rgba(255,255,255,0.86); font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 26px 18px 34px; }
+    h1 { font-size: 18px; letter-spacing: -0.02em; margin-bottom: 10px; }
+    .sub { font-size: 13px; line-height: 1.65; color: rgba(255,255,255,0.64); margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 16px;
+      background: radial-gradient(circle at 50% 40%, rgba(255,255,255,0.06), rgba(0,0,0,0.62) 56%, rgba(0,0,0,0.92));
+      overflow: hidden;
+      box-shadow: 0 30px 120px rgba(0,0,0,0.5);
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      position: relative;
+    }
+    .card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.30); }
+    .card.selected { border-color: rgba(255,255,255,0.82); box-shadow: 0 40px 150px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.18) inset; }
+    .preview { aspect-ratio: 16 / 10; width: 100%; display: block; background: #000; }
+    .meta { padding: 12px 12px 14px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 8px;
+    }
+    .letter {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,0.22);
+      background: rgba(255,255,255,0.04);
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    .title { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 6px; }
+    .desc { font-size: 12px; line-height: 1.55; color: rgba(255,255,255,0.62); }
+    .hint {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.03);
+      color: rgba(255,255,255,0.72);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    code { color: rgba(255,255,255,0.86); }
+    .pill {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      padding: 6px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      background: rgba(0,0,0,0.42);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: rgba(255,255,255,0.72);
+      backdrop-filter: blur(10px);
+      display: none;
+    }
+    .card.selected .pill { display: inline-flex; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>选择你想要的 3D 点-线闪烁“艺术空间”风格</h1>
+    <p class="sub">
+      这是一个<strong>小样预览</strong>（不接入 MediaPipe 数据，只展示视觉语言）。点击卡片选择 A/B/C，选择会保存在浏览器里。
+      然后回到聊天里告诉我你选了哪个（以及想微调什么）。
+    </p>
+
+    <div class="grid">
+      <div class="card" data-choice="A">
+        <div class="pill">selected</div>
+        <canvas class="preview" width="800" height="500"></canvas>
+        <div class="meta">
+          <div class="tag"><span class="letter">A</span><span>FILAMENT CLOUD</span></div>
+          <div class="title">柔和体积感 · 细丝连线 · 低频闪烁</div>
+          <div class="desc">点的密度较高、线更细，闪烁偏柔和，整体像“雾状神经网络”。</div>
+        </div>
+      </div>
+
+      <div class="card" data-choice="B">
+        <div class="pill">selected</div>
+        <canvas class="preview" width="800" height="500"></canvas>
+        <div class="meta">
+          <div class="tag"><span class="letter">B</span><span>HARD SPARK GRID</span></div>
+          <div class="title">高对比 · 硬边闪烁 · 电子火花感</div>
+          <div class="desc">点更亮、线条更“脆”，闪烁更明显，像电脉冲在网格中穿梭。</div>
+        </div>
+      </div>
+
+      <div class="card" data-choice="C">
+        <div class="pill">selected</div>
+        <canvas class="preview" width="800" height="500"></canvas>
+        <div class="meta">
+          <div class="tag"><span class="letter">C</span><span>DEEP SPACE WEB</span></div>
+          <div class="title">深空透视 · 稀疏结构 · 星云噪声</div>
+          <div class="desc">点更稀疏但更“深”，强调空间透视与慢速旋转，带一点星尘噪声。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      打开方式：在 Finder 里双击这个文件，或在终端运行<br/>
+      <code>open "visual/3d-style-options.html"</code><br/>
+      选好后告诉我：你选 <strong>A/B/C</strong>，以及你希望 <strong>点密度 / 线数量 / 闪烁强度 / 颜色风格（纯白 or 冷蓝紫）</strong> 更偏哪边。
+    </div>
+  </div>
+
+  <script>
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function randRange(a, b) { return a + Math.random() * (b - a); }
+
+    function makeScene(canvas, style) {
+      const ctx = canvas.getContext("2d", { alpha: true });
+      const w = canvas.width;
+      const h = canvas.height;
+
+      const preset = (() => {
+        if (style === "A") {
+          return { n: 280, k: 2, linkDist: 0.18, flash: 0.55, dot: 1.2, line: 0.6, noise: 0.10, glow: 10 };
+        }
+        if (style === "B") {
+          // B: 更“硬”的电脉冲感，同时强调“距离近就连线、远就断开”的逻辑
+          return { n: 220, k: 3, linkDist: 0.24, flash: 1.0, dot: 1.55, line: 0.75, noise: 0.03, glow: 16, hardLinks: true };
+        }
+        return { n: 180, k: 2, linkDist: 0.26, flash: 0.70, dot: 1.3, line: 0.8, noise: 0.18, glow: 12 };
+      })();
+
+      const pts = new Array(preset.n).fill(0).map(() => ({
+        x: randRange(-1, 1),
+        y: randRange(-1, 1),
+        z: randRange(-1, 1),
+        vx: randRange(-0.002, 0.002),
+        vy: randRange(-0.002, 0.002),
+        vz: randRange(-0.002, 0.002),
+        seed: Math.random() * 1000
+      }));
+
+      function project(p) {
+        const fov = 2.4;
+        const z = p.z + 2.8;
+        const s = fov / z;
+        return {
+          x: w * 0.5 + p.x * s * w * 0.26,
+          y: h * 0.5 + p.y * s * h * 0.30,
+          s,
+          z
+        };
+      }
+
+      function step(t) {
+        const time = t * 0.001;
+        ctx.clearRect(0, 0, w, h);
+
+        // background
+        const bg = ctx.createRadialGradient(w * 0.5, h * 0.45, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+        bg.addColorStop(0, "rgba(255,255,255,0.06)");
+        bg.addColorStop(0.5, "rgba(0,0,0,0.75)");
+        bg.addColorStop(1, "rgba(0,0,0,0.98)");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        // mild rotation
+        const ax = (style === "C" ? 0.18 : 0.12) * Math.sin(time * 0.35);
+        const ay = (style === "B" ? 0.22 : 0.14) * Math.cos(time * 0.28);
+        const sinx = Math.sin(ax), cosx = Math.cos(ax);
+        const siny = Math.sin(ay), cosy = Math.cos(ay);
+
+        for (const p of pts) {
+          // integrate
+          p.x += p.vx; p.y += p.vy; p.z += p.vz;
+          const lim = 1.12;
+          if (p.x < -lim || p.x > lim) p.vx *= -1;
+          if (p.y < -lim || p.y > lim) p.vy *= -1;
+          if (p.z < -lim || p.z > lim) p.vz *= -1;
+
+          // rotate Y
+          let x = p.x * cosy + p.z * siny;
+          let z = -p.x * siny + p.z * cosy;
+          // rotate X
+          let y = p.y * cosx - z * sinx;
+          z = p.y * sinx + z * cosx;
+          p.rx = x; p.ry = y; p.rz = z;
+        }
+
+        // sort by depth for nicer draw
+        const order = pts.slice().sort((a, b) => (a.rz - b.rz));
+        const proj = order.map((p) => ({ p, q: project({ x: p.rx, y: p.ry, z: p.rz }) }));
+
+        // edges
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineCap = "round";
+        if (preset.hardLinks) {
+          // O(n^2) 距离连线：近就连、远就断（n≈220 => 2.4 万对，足够快）
+          const ld = preset.linkDist;
+          const ld2 = ld * ld;
+          const cool = [255, 255, 255];
+          const freq = 7.5;
+          for (let i = 0; i < proj.length; i++) {
+            const ai = proj[i];
+            for (let j = i + 1; j < proj.length; j++) {
+              const bj = proj[j];
+              const dx = ai.p.rx - bj.p.rx;
+              const dy = ai.p.ry - bj.p.ry;
+              const dz = ai.p.rz - bj.p.rz;
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 > ld2) continue;
+
+              const d = Math.sqrt(d2);
+              const near = 1 - d / ld;
+              const flicker = 0.55 + 0.45 * Math.sin(time * freq + ai.p.seed * 0.9 + bj.p.seed * 0.7);
+              const alpha = clamp((0.02 + 0.18 * near) * (0.55 + 0.9 * flicker) * preset.flash, 0.01, 0.38);
+
+              ctx.strokeStyle = `rgba(${cool[0]},${cool[1]},${cool[2]},${alpha})`;
+              ctx.lineWidth = preset.line * (0.55 + 1.0 * Math.min(ai.q.s, bj.q.s));
+              ctx.beginPath();
+              ctx.moveTo(ai.q.x, ai.q.y);
+              ctx.lineTo(bj.q.x, bj.q.y);
+              ctx.stroke();
+            }
+          }
+        } else {
+          for (let i = 0; i < proj.length; i++) {
+            const pi = proj[i];
+            const a = pi.p;
+            const ax2 = a.rx, ay2 = a.ry, az2 = a.rz;
+
+            // connect to a few near neighbors (cheap approximate: random samples)
+            for (let j = 0; j < preset.k; j++) {
+              const idx = (i + 1 + Math.floor((Math.sin(a.seed + time * 0.9 + j) * 0.5 + 0.5) * 40)) % proj.length;
+              const pj = proj[idx];
+              const b = pj.p;
+              const dx = ax2 - b.rx;
+              const dy = ay2 - b.ry;
+              const dz = az2 - b.rz;
+              const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (d > preset.linkDist) continue;
+
+              const pulse = 0.5 + 0.5 * Math.sin(time * (style === "B" ? 6.0 : 3.6) + a.seed * 2.0 + j * 1.7);
+              const flicker = Math.pow(pulse, 2.2) * preset.flash;
+              const alpha = clamp(0.02 + 0.22 * (1 - d / preset.linkDist) * flicker, 0.01, 0.35);
+
+              const cool = style === "C" ? [140, 170, 255] : (style === "B" ? [255, 255, 255] : [230, 240, 255]);
+              ctx.strokeStyle = `rgba(${cool[0]},${cool[1]},${cool[2]},${alpha})`;
+              ctx.lineWidth = preset.line * (0.6 + 1.2 * pi.q.s);
+              ctx.beginPath();
+              ctx.moveTo(pi.q.x, pi.q.y);
+              ctx.lineTo(pj.q.x, pj.q.y);
+              ctx.stroke();
+            }
+          }
+        }
+        ctx.restore();
+
+        // dots
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.shadowColor = "rgba(255,255,255,0.35)";
+        ctx.shadowBlur = preset.glow;
+        for (let i = 0; i < proj.length; i++) {
+          const { p, q } = proj[i];
+          const pulse = 0.5 + 0.5 * Math.sin(time * (style === "B" ? 4.4 : 2.6) + p.seed * 3.1);
+          const a = clamp(0.08 + 0.40 * Math.pow(pulse, 2.2), 0.05, 0.62);
+          const r = preset.dot * (0.6 + 1.35 * q.s);
+
+          const cool = style === "C" ? [180, 205, 255] : (style === "B" ? [255, 255, 255] : [236, 244, 255]);
+          ctx.fillStyle = `rgba(${cool[0]},${cool[1]},${cool[2]},${a})`;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // noise / dust
+        ctx.save();
+        ctx.globalAlpha = preset.noise;
+        for (let i = 0; i < 400; i++) {
+          const v = Math.random() > 0.5 ? 255 : 0;
+          ctx.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.08})`;
+          ctx.fillRect(Math.random() * w, Math.random() * h, 1, 1);
+        }
+        ctx.restore();
+
+        requestAnimationFrame(step);
+      }
+
+      requestAnimationFrame(step);
+    }
+
+    const cards = Array.from(document.querySelectorAll(".card"));
+    const saved = localStorage.getItem("chosenStyle");
+    if (saved) {
+      const c = cards.find((x) => x.dataset.choice === saved);
+      if (c) c.classList.add("selected");
+    }
+
+    cards.forEach((card) => {
+      const canvas = card.querySelector("canvas");
+      makeScene(canvas, card.dataset.choice);
+
+      card.addEventListener("click", () => {
+        cards.forEach((c) => c.classList.remove("selected"));
+        card.classList.add("selected");
+        localStorage.setItem("chosenStyle", card.dataset.choice);
+      });
+    });
+  </script>
+</body>
+</html>

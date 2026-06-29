@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>治愈系小镇资产展示</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body { margin: 0; background: #fdf5e6; overflow: hidden; }
+        .info { position: absolute; top: 10px; left: 10px; font-family: sans-serif; color: #8b4513; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div class="info">点击屏幕刷新场景 | 鼠标上下移动切换昼夜</div>
+<script>
+
+let props = [];
+let time = { dayP: 0, isNight: false, brightness: 1 };
+
+// --- 基础工具函数 ---
+function lerpArr(a, b, t) { return a.map((v, i) => v + (b[i] - v) * t); }
+
+function subdivideLine(x1, y1, x2, y2, segments=3, jitter=1.2) {
+    let pts = [];
+    for(let i=0; i<=segments; i++) {
+        let t = i/segments;
+        let x = lerp(x1, x2, t);
+        let y = lerp(y1, y2, t);
+        if(i>0 && i<segments) { x += random(-jitter, jitter); y += random(-jitter, jitter); }
+        pts.push(x, y);
+    }
+    return pts;
+}
+
+function subdividePoly(vertices, segments=2, jitter=1.0) {
+    let pts = [];
+    for(let i=0; i<vertices.length; i++) {
+        let p1 = vertices[i], p2 = vertices[(i+1)%vertices.length];
+        for(let j=0; j<segments; j++) {
+            let t = j/segments;
+            let x = lerp(p1.x, p2.x, t);
+            let y = lerp(p1.y, p2.y, t);
+            if(j>0) { x += random(-jitter, jitter); y += random(-jitter, jitter); }
+            pts.push(x, y);
+        }
+    }
+    return pts;
+}
+
+function drawSketchyPoly(pts, strokeCol, fillCol, weight=1.5) {
+    if(fillCol) fill(...fillCol); else noFill();
+    if(strokeCol) { stroke(...strokeCol); strokeWeight(weight); } else noStroke();
+    beginShape();
+    for(let i=0; i<pts.length; i+=2) vertex(pts[i], pts[i+1]);
+    endShape(CLOSE);
+}
+
+// --- 弹簧动画逻辑 ---
+function applySpring(obj) {
+    if(!obj.sp) obj.sp = {sc:0, v:0};
+    let force = (1 - obj.sp.sc) * 0.1;
+    obj.sp.v = (obj.sp.v + force) * 0.8;
+    obj.sp.sc += obj.sp.v;
+}
+
+// --- 核心资产类 ---
+class CozyProp {
+    constructor(x, y, type) {
+        this.x = x; this.y = y; this.type = type;
+        this.seed = random(100);
+        this.sp = {sc:0, v:0};
+        this.mainCol = [random(150,255), random(100,200), random(100,150)];
+    }
+
+    update() { applySpring(this); }
+
+    drawShadow() {
+        if(time.isNight) return;
+        noStroke(); fill(0, 0, 0, 30);
+        let sw = 20, sh = 6;
+        if(this.type === 'bench' || this.type === 'rug') sw = 50;
+        ellipse(this.x, this.y, sw * this.sp.sc, sh * this.sp.sc);
+    }
+
+    draw() {
+        push();
+        translate(this.x, this.y);
+        scale(this.sp.sc);
+        let dim = time.brightness;
+        let c = this.mainCol.map(v => v * dim);
+        strokeWeight(1.5); stroke(60 * dim, 40 * dim, 20 * dim);
+
+        switch(this.type) {
+            case 'mug': // 1. 咖啡杯
+                fill(...c); rect(-6, -8, 12, 10, 2);
+                noFill(); arc(6, -4, 6, 6, -HALF_PI, HALF_PI);
+                // 蒸汽动画
+                if(!time.isNight) {
+                    stroke(255, 150); noFill();
+                    for(let i=0; i<2; i++) {
+                        let ox = sin(frameCount*0.1 + i)*2;
+                        let oy = (frameCount*0.5 + i*10)%20;
+                        line(-2+i*4+ox, -10-oy, -2+i*4+ox, -15-oy);
+                    }
+                }
+                break;
+
+            case 'flowerpot': // 2. 多肉盆栽
+                fill(180*dim, 100*dim, 60*dim); rect(-7, -6, 14, 8);
+                fill(120*dim, 180*dim, 100*dim); 
+                for(let i=0; i<5; i++) ellipse(cos(i)*4, -8+sin(i)*2, 6, 8);
+                break;
+
+            case 'stool': // 3. 木凳
+                fill(150*dim, 100*dim, 60*dim); 
+                line(-6, 0, -6, -10); line(6, 0, 6, -10);
+                rect(-10, -12, 20, 4, 2);
+                break;
+
+            case 'books': // 4. 堆叠书本
+                for(let i=0; i<3; i++) {
+                    fill(random(100,255)*dim, 150*dim, 200*dim);
+                    rect(-10, -4-i*5, 20, 5);
+                }
+                break;
+
+            case 'mailbox': // 5. 邮筒
+                fill(200*dim, 50*dim, 50*dim); rect(-6, -25, 12, 18, 5, 5, 0, 0);
+                strokeWeight(2); line(0, 0, 0, -8);
+                if(sin(frameCount*0.05)>0) { fill(255,255,0); rect(6, -20, 4, 2); } // 旗子
+                break;
+
+            case 'wagon': // 6. 板车
+                fill(150*dim, 50*dim, 50*dim); rect(-15, -10, 30, 8);
+                fill(50*dim); ellipse(-10, -2, 6, 6); ellipse(10, -2, 6, 6);
+                line(-15, -6, -25, -12);
+                break;
+
+            case 'basket': // 7. 野餐篮
+                fill(222*dim, 184*dim, 135*dim); rect(-12, -10, 24, 12, 2);
+                noFill(); arc(0, -10, 20, 15, PI, 0);
+                fill(255*dim, 100*dim, 100*dim); rect(-12, -10, 24, 3); // 盖布
+                break;
+
+            case 'wateringcan': // 8. 浇水壶
+                fill(100*dim, 150*dim, 200*dim); rect(-8, -10, 16, 12, 3);
+                line(8, -4, 18, -12); // 壶嘴
+                arc(-8, -4, 8, 10, HALF_PI, -HALF_PI); // 把手
+                break;
+
+            case 'mushroom': // 9. 蘑菇
+                fill(230*dim, 220*dim, 200*dim); rect(-3, -8, 6, 8);
+                fill(255*dim, 80*dim, 80*dim); arc(0, -8, 20, 15, PI, 0);
+                fill(255*dim); ellipse(-4, -12, 3, 3); ellipse(3, -10, 2, 2);
+                break;
+
+            case 'lamp': // 10. 落地灯
+                line(0,0,0,-30); fill(255*dim, 230*dim, 150*dim);
+                if(time.isNight) {
+                    noStroke(); fill(255, 200, 50, 100);
+                    ellipse(0, -32, 40, 40);
+                }
+                stroke(60*dim); fill(250*dim, 250*dim, 200*dim);
+                quad(-10, -25, 10, -25, 15, -35, -15, -35);
+                break;
+
+            case 'honey': // 11. 蜜罐
+                fill(255*dim, 200*dim, 0); rect(-6, -10, 12, 12, 3);
+                fill(255*dim, 255*dim, 200*dim); rect(-6, -7, 12, 5); // 标签
+                break;
+
+            case 'hatpost': // 12. 草帽木桩
+                strokeWeight(3); line(0,0,0,-20);
+                fill(230*dim, 200*dim, 100*dim); 
+                ellipse(0, -22, 20, 8); ellipse(0, -25, 10, 6);
+                break;
+
+            case 'rug': // 13. 地毯
+                fill(c[0], c[1], c[2], 150);
+                rect(-30, -2, 60, 15, 5);
+                stroke(c[0]*0.5); for(let i=-25; i<25; i+=5) line(i, -2, i, 0);
+                break;
+
+            case 'bread': // 14. 面包篮
+                fill(220*dim, 150*dim, 80*dim); ellipse(0, -5, 20, 10);
+                fill(150*dim, 100*dim, 50*dim); ellipse(-4, -8, 10, 6); ellipse(5, -7, 8, 5);
+                break;
+
+            case 'boots': // 15. 雨靴
+                fill(255*dim, 200*dim, 50*dim);
+                rect(-8, -12, 6, 12); rect(-8, -4, 10, 4);
+                rect(2, -12, 6, 12); rect(2, -4, 10, 4);
+                break;
+
+            case 'easel': // 16. 画架
+                line(0,0, -8, 0); line(0,0, 8, 0); line(0,0, 0, -20);
+                fill(255*dim); rect(-10, -25, 20, 15);
+                fill(100*dim, 200*dim, 255*dim); rect(-8, -23, 16, 11); // 画布
+                break;
+
+            case 'chime': // 17. 风铃
+                line(0, -40, 0, -30);
+                let swing = sin(frameCount*0.05)*5;
+                push(); translate(0, -30); rotate(radians(swing));
+                fill(150*dim, 200*dim, 255*dim); ellipse(0,0,10,10);
+                line(0, 5, 0, 20); fill(255*dim); rect(-3, 20, 6, 12);
+                pop();
+                break;
+
+            case 'catbowl': // 18. 猫碗
+                fill(200*dim, 100*dim, 100*dim); arc(0, 0, 15, 10, PI, 0);
+                fill(100*dim, 80*dim, 50*dim); ellipse(0, -2, 8, 3); // 鱼干
+                break;
+
+            case 'bench': // 19. 长椅
+                fill(120*dim, 80*dim, 50*dim);
+                rect(-25, -10, 50, 4); // 座位
+                rect(-25, -20, 50, 4); // 靠背
+                line(-20, 0, -20, -20); line(20, 0, 20, -20);
+                break;
+
+            case 'lantern': // 20. 提灯
+                strokeWeight(1); fill(80*dim); rect(-5, -12, 10, 12);
+                if(time.isNight) {
+                    fill(255, 255, 100, 200); rect(-3, -10, 6, 8);
+                    noStroke(); fill(255, 200, 50, 50); ellipse(0, -6, 20, 20);
+                } else {
+                    fill(255*dim, 255*dim, 200*dim); rect(-3, -10, 6, 8);
+                }
+                noFill(); stroke(80*dim); arc(0, -12, 8, 8, PI, 0);
+                break;
+        }
+        pop();
+    }
+}
+
+// --- 主程序 ---
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    generate();
+}
+
+function generate() {
+    props = [];
+    let types = [
+        'mug', 'flowerpot', 'stool', 'books', 'mailbox', 
+        'wagon', 'basket', 'wateringcan', 'mushroom', 'lamp',
+        'honey', 'hatpost', 'rug', 'bread', 'boots', 
+        'easel', 'chime', 'catbowl', 'bench', 'lantern'
+    ];
+    
+    // 在屏幕中央区域随机生成这20个物体
+    for(let i=0; i<types.length; i++) {
+        let x = width/2 + random(-width*0.35, width*0.35);
+        let y = height/2 + random(-height*0.25, height*0.35);
+        props.push(new CozyProp(x, y, types[i]));
+    }
+    // 排序保证前后遮挡
+    props.sort((a,b) => a.y - b.y);
+}
+
+function draw() {
+    // 处理昼夜
+    let dayT = map(mouseY, 0, height, 0, 1, true);
+    time.isNight = dayT > 0.7;
+    time.brightness = map(dayT, 0, 1, 1, 0.3);
+    
+    // 背景色渐变
+    let bg = lerpArr([253, 245, 230], [20, 25, 50], dayT);
+    background(bg);
+    
+    // 画草地
+    let grass = lerpArr([220, 240, 200], [30, 50, 40], dayT);
+    noStroke(); fill(grass);
+    rect(0, height*0.4, width, height*0.6);
+
+    // 绘制所有物体
+    for(let p of props) p.update();
+    for(let p of props) p.drawShadow();
+    for(let p of props) p.draw();
+
+    // 装饰性文字
+    fill(time.isNight ? 200 : 100);
+    noStroke();
+    textSize(16);
+    textAlign(CENTER);
+    text("治愈系资产展示", width/2, 50);
+}
+
+function mousePressed() {
+    generate();
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>

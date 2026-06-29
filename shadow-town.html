@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>金色小镇 - 昼夜光影</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .weather-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 30px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .weather-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .weather-btn.active {
+            background: rgba(0, 150, 255, 0.3);
+            border-color: rgba(0, 150, 255, 0.5);
+        }
+
+        .intensity-ctrl {
+            position: absolute;
+            top: 70px;
+            right: 20px;
+            width: 140px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            color: white;
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        .intensity-ctrl input {
+            width: 100%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <button id="rainBtn" class="weather-btn" onclick="toggleWeather()">
+        <span id="rainIcon">☀️</span>
+        <span id="rainText">晴朗</span>
+    </button>
+    <div class="intensity-ctrl">
+        <div style="margin-bottom: 5px;">强度: <span id="intVal">3</span></div>
+        <input type="range" id="intSlider" min="1" max="6" value="3" oninput="updateIntensity(this.value)">
+    </div>
+    <script>
+
+        // ==================== 颜色锚点 ====================
+        const C = {
+            dawnTop: [232, 213, 224],
+            dawnBot: [135, 206, 235],
+            dayTop: [244, 185, 66],
+            dayBot: [232, 168, 56],
+            duskTop: [232, 152, 58],
+            duskBot: [139, 69, 19],
+            nightTop: [26, 26, 46],
+            nightBot: [15, 52, 96],
+
+            wallDay: [245, 245, 220],
+            wallNight: [80, 80, 70],
+
+            roofDay: [196, 69, 54],
+            roofNight: [100, 40, 35],
+
+            shadowDawn: [100, 100, 120, 90],
+            shadowDay: [139, 69, 19, 100],
+            shadowDusk: [160, 60, 40, 100],
+
+            windowDay: [196, 69, 54],
+            windowNight: [255, 215, 0],
+
+            lampLight: [255, 220, 120],
+            lampGlow: [255, 200, 80, 60],
+
+            leafDay: [120, 160, 80],
+            leafNight: [40, 60, 40]
+        };
+
+        // ==================== 全局状态 ====================
+        let time = {
+            dayP: 0, nightP: 0, isNight: false,
+            sunAngle: 0, sunElev: 0, brightness: 1,
+            bgTop: null, bgBot: null, shadowCol: null, hasShadow: true,
+            prevX: -1, sunMoved: true
+        };
+
+        let weather = {
+            mode: 'sunny', intensity: 3, rainLevel: 0, snowLevel: 0,
+            drops: [], ripples: [], flakes: []
+        };
+
+        let houses = [], windmills = [], trees = [], lamps = [], stars = [], groundDeets = [], allObjects = [];
+
+        // ==================== 弹簧动画系统 ====================
+        function initSpring(obj, delay) {
+            obj._sp = { scale: 0, vel: 0, target: 1, delay: delay || 0, started: false, frame: 0 };
+        }
+        function updateSpring(obj) {
+            let s = obj._sp;
+            if (!s) return 1;
+            s.frame++;
+            if (s.frame < s.delay) return 0;
+            if (!s.started) { s.started = true; s.vel = 0.08; }
+            let stiffness = 0.12, damping = 0.72;
+            let force = (s.target - s.scale) * stiffness;
+            s.vel = (s.vel + force) * damping;
+            s.scale += s.vel;
+            if (Math.abs(s.scale - s.target) < 0.001 && Math.abs(s.vel) < 0.001) s.scale = s.target;
+            return s.scale;
+        }
+
+        // ==================== 工具函数 ====================
+        function lerpArr(a, b, t) { return a.map((v, i) => v + (b[i] - v) * t); }
+        function arrToCol(a) { return color(a[0], a[1], a[2], a[3] !== undefined ? a[3] : 255); }
+
+        function getTimeColor(dawn, day, dusk, night) {
+            if (time.isNight) {
+                let t = map(time.nightP, 0.65, 1, 0, 1, true);
+                return lerpArr(day, night, t);
+            }
+            if (time.dayP < 0.5) {
+                let t = map(time.dayP, 0, 0.5, 0, 1);
+                return lerpArr(dawn, day, t);
+            } else {
+                let t = map(time.dayP, 0.5, 1, 0, 1);
+                return lerpArr(day, dusk, t);
+            }
+        }
+
+        // ==================== 手绘风格工具 ====================
+        function subdivideLine(x1, y1, x2, y2, segments = 3, jitter = 1.5, extend = 2, dynamic = false) {
+            let pts = []; // Using flat array [x, y, x, y...]
+            let dx = x2 - x1, dy = y2 - y1;
+            let len = sqrt(dx * dx + dy * dy);
+            if (len === 0) return [x1, y1, x2, y2];
+            let ux = dx / len, uy = dy / len;
+            let startX = x1 - ux * extend, startY = y1 - uy * extend;
+            let endX = x2 + ux * extend, endY = y2 + uy * extend;
+
+            for (let i = 0; i <= segments; i++) {
+                let t = i / segments;
+                let x = lerp(startX, endX, t);
+                let y = lerp(startY, endY, t);
+                if (i > 0 && i < segments) {
+                    if (dynamic) {
+                        x += (noise(x * 0.01, y * 0.01, frameCount * 0.01) - 0.5) * 2 * jitter;
+                        y += (noise(x * 0.01 + 100, y * 0.01 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+                    } else {
+                        x += random(-jitter, jitter);
+                        y += random(-jitter, jitter);
+                    }
+                }
+                pts.push(x, y);
+            }
+            return pts;
+        }
+
+        function subdividePolygon(vertices, segments = 3, jitter = 1.5, dynamic = false) {
+            let pts = []; // Flat array [x1, y1, x2, y2...]
+            for (let i = 0; i < vertices.length; i++) {
+                let p1 = vertices[i];
+                let p2 = vertices[(i + 1) % vertices.length];
+                for (let j = 0; j < segments; j++) {
+                    let t = j / segments;
+                    let x = lerp(p1.x, p2.x, t);
+                    let y = lerp(p1.y, p2.y, t);
+                    if (j > 0) {
+                        if (dynamic) {
+                            x += (noise(x * 0.01, y * 0.01, frameCount * 0.01) - 0.5) * 2 * jitter;
+                            y += (noise(x * 0.01 + 100, y * 0.01 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+                        } else {
+                            x += random(-jitter, jitter);
+                            y += random(-jitter, jitter);
+                        }
+                    }
+                    pts.push(x, y);
+                }
+            }
+            return pts;
+        }
+
+        function drawSketchyPoly(pts, strokeCol, fillCol, weight = 1.5) {
+            if (fillCol) fill(...fillCol); else noFill();
+            if (strokeCol) { stroke(...strokeCol); strokeWeight(weight); strokeJoin(ROUND); strokeCap(ROUND); } else noStroke();
+            beginShape();
+            for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+            endShape(CLOSE);
+        }
+
+        function drawSketchyLineSegments(pts, strokeCol, weight = 1.5) {
+            if (strokeCol) { stroke(...strokeCol); strokeWeight(weight); strokeJoin(ROUND); strokeCap(ROUND); } else noStroke();
+            noFill();
+            beginShape();
+            for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+            endShape();
+        }
+
+        function orientation(p, q, r) {
+            let val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+            if (val == 0) return 0;
+            return (val > 0) ? 1 : 2;
+        }
+
+        function convexHull(points) {
+            let n = points.length;
+            if (n < 3) return points;
+            let hull = [];
+            let l = 0;
+            for (let i = 1; i < n; i++) if (points[i].x < points[l].x) l = i;
+            let p = l, q;
+            do {
+                hull.push(points[p]);
+                q = (p + 1) % n;
+                for (let i = 0; i < n; i++) {
+                    if (orientation(points[p], points[i], points[q]) == 2) q = i;
+                }
+                p = q;
+            } while (p != l);
+            return hull;
+        }
+
+        // ==================== 影子投影 ====================
+        function shadowProj(x, objY, groundY) {
+            let h = groundY - objY;
+            if (h < 0) h = 0;
+            let scale = time.sunElev > 0.01 ? (1.5 / tan(time.sunElev)) : 0;
+            return {
+                x: x + cos(time.sunAngle) * h * scale,
+                y: groundY + sin(time.sunAngle) * h * scale
+            };
+        }
+
+        // ==================== 路灯类 ====================
+        class StreetLamp {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.h = random(35, 55);
+                this.post = subdivideLine(x, y, x, y - this.h, 4, 1, 1);
+                this.hood = subdividePolygon([
+                    { x: x - 5, y: y - this.h - 4 }, { x: x + 5, y: y - this.h - 4 },
+                    { x: x + 5, y: y - this.h + 2 }, { x: x - 5, y: y - this.h + 2 }
+                ], 2, 0.5);
+            }
+            update() { updateSpring(this); }
+            drawShadow() {
+                if (!time.hasShadow) return;
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                if (time.sunMoved || !this.cachedShadow) {
+                    let b = { x: this.x, y: this.y };
+                    let t = { x: this.x, y: this.y - this.h * sc - 4 };
+                    let tp = shadowProj(t.x, t.y, this.y);
+                    this.cachedShadowLine = subdivideLine(b.x, b.y, tp.x, tp.y, 3, 1, 0, true);
+                    let head = shadowProj(this.x, this.y - this.h * sc, this.y);
+                    let pts = [];
+                    for (let i = 0; i < 8; i++) {
+                        let a = (i / 8) * TWO_PI;
+                        pts.push({ x: head.x + cos(a) * 6, y: head.y + sin(a) * 3 });
+                    }
+                    this.cachedShadowPoly = subdividePolygon(pts, 1, 0.5);
+                    this.cachedShadow = true;
+                }
+                drawSketchyLineSegments(this.cachedShadowLine, time.shadowCol, 3);
+                drawSketchyPoly(this.cachedShadowPoly, null, time.shadowCol);
+            }
+            draw() {
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                push();
+                translate(this.x, this.y);
+                scale(1, sc);
+                translate(-this.x, -this.y);
+                let strokeC = time.isNight ? [40, 40, 50] : [60, 40, 30];
+                drawSketchyLineSegments(this.post, strokeC, 2);
+                let hoodCol = time.isNight ? [200, 200, 180] : [120, 120, 110];
+                drawSketchyPoly(this.hood, strokeC, hoodCol, 1);
+                if (time.isNight) {
+                    fill(...C.lampLight); noStroke();
+                    ellipse(this.x, this.y - this.h + 2, 6, 4);
+                }
+                pop();
+            }
+            drawGlow() {
+                if (!time.isNight) return;
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.5) return;
+                let intensity = map(time.nightP, 0.65, 1, 0, 1, true);
+                noStroke();
+                for (let i = 5; i > 0; i--) {
+                    let alpha = (C.lampGlow[3] / i) * intensity;
+                    fill(C.lampGlow[0], C.lampGlow[1], C.lampGlow[2], alpha);
+                    ellipse(this.x, this.y - this.h * sc + 10, 20 * i, 20 * i);
+                }
+                fill(C.lampGlow[0], C.lampGlow[1], C.lampGlow[2], 30 * intensity);
+                ellipse(this.x, this.y + 2, 50, 15);
+            }
+        }
+
+        // ==================== 房子类（伪3D版） ====================
+        class House {
+            constructor(x, y, w, storyH, stories) {
+                this.x = x; this.y = y; this.w = w;
+                this.h = storyH; this.stories = stories;
+                this.roofOver = 4; this.roofH = storyH * 0.45;
+                this.baseWall = C.wallDay.map(v => v + random(-10, 10));
+                this.baseRoof = C.roofDay.map(v => v + random(-10, 10));
+
+                this.depth = random(15, 30);
+                this.dx = this.depth * 0.8;
+                this.dy = -this.depth * 0.5;
+
+                this.generateGeometry();
+            }
+
+            generateGeometry() {
+                let x = this.x, y = this.y, w = this.w;
+                let top = y - this.h * this.stories;
+                let peak = top - this.roofH;
+                let dx = this.dx, dy = this.dy;
+
+                let bl = { x, y }, br = { x: x + w, y };
+                let tl = { x, y: top }, tr = { x: x + w, y: top };
+                let rPeak = { x: x + w / 2, y: peak };
+                let rLeft = { x: x - this.roofOver, y: top }, rRight = { x: x + w + this.roofOver, y: top };
+
+                let brD = { x: br.x + dx, y: br.y + dy }, trD = { x: tr.x + dx, y: tr.y + dy };
+                let rPeakD = { x: rPeak.x + dx, y: rPeak.y + dy }, rRightD = { x: rRight.x + dx, y: rRight.y + dy };
+
+                this.polyFrontWall = subdividePolygon([bl, br, tr, tl], 3, 1.5);
+                this.polySideWall = subdividePolygon([br, brD, trD, tr], 3, 1.5);
+                this.polyFrontRoof = subdividePolygon([rLeft, rRight, rPeak], 3, 1.5);
+                this.polySideRoof = subdividePolygon([rPeak, rRight, rRightD, rPeakD], 3, 1.5);
+
+                this.windows = [];
+                let winW = 5, winH = 7;
+                let cols = max(2, floor(w / 14));
+                for (let s = 0; s < this.stories; s++) {
+                    let sy = y - (s + 1) * this.h + this.h * 0.35;
+                    for (let c = 1; c < cols; c++) {
+                        let wx = x + (w / cols) * c - winW / 2;
+                        let wp = subdividePolygon([{ x: wx, y: sy }, { x: wx + winW, y: sy }, { x: wx + winW, y: sy + winH }, { x: wx, y: sy + winH }], 1, 0.5);
+                        this.windows.push({ poly: wp, cx: wx + winW / 2, cy: sy + winH / 2 });
+                    }
+                }
+                let doorW = 8, doorH = this.h * 0.3;
+                let doorX = x + w / 2 - doorW / 2, doorY = y - doorH;
+                this.doorPoly = subdividePolygon([{ x: doorX, y: doorY }, { x: doorX + doorW, y: doorY }, { x: doorX + doorW, y: doorY + doorH }, { x: doorX, y: doorY + doorH }], 1, 0.5);
+
+                this.footprint = [bl, br, brD, { x: bl.x + dx, y: bl.y + dy }];
+                this.roofCorners = [tl, tr, trD, { x: tl.x + dx, y: tl.y + dy }, rPeak, rPeakD, rLeft, rRight, rRightD];
+            }
+
+            getColors() {
+                let dim = time.brightness;
+                return {
+                    wall: lerpArr(this.baseWall, C.wallNight, 1 - dim),
+                    roof: lerpArr(this.baseRoof, C.roofNight, 1 - dim)
+                };
+            }
+
+            update() { updateSpring(this); }
+            drawShadow() {
+                if (!time.hasShadow) return;
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                if (time.sunMoved || !this.cachedShadow) {
+                    let pts = [...this.footprint];
+                    for (let p of this.roofCorners) {
+                        let adjY = this.y - (this.y - p.y) * sc;
+                        pts.push(shadowProj(p.x, adjY, this.y));
+                    }
+                    let hull = convexHull(pts);
+                    this.cachedShadow = subdividePolygon(hull, 2, 1, true);
+                }
+                drawSketchyPoly(this.cachedShadow, null, time.shadowCol);
+            }
+
+            draw() {
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                push();
+                translate(this.x, this.y);
+                scale(1, sc);
+                translate(-this.x, -this.y);
+                let C2 = this.getColors();
+                let sideWallCol = C2.wall.map(v => v * 0.85);
+                drawSketchyPoly(this.polySideWall, null, sideWallCol);
+                drawSketchyPoly(this.polyFrontWall, null, C2.wall);
+                let sideRoofCol = C2.roof.map(v => v * 0.85);
+                drawSketchyPoly(this.polySideRoof, null, sideRoofCol);
+                drawSketchyPoly(this.polyFrontRoof, null, C2.roof);
+                let winCol = time.isNight ? C.windowNight : C.windowDay;
+                for (let win of this.windows) {
+                    drawSketchyPoly(win.poly, null, winCol);
+                    if (time.isNight) {
+                        let glow = map(time.nightP, 0.65, 1, 0, 1, true);
+                        noStroke(); fill(255, 200, 50, 40 * glow);
+                        ellipse(win.cx, win.cy, 18, 18);
+                    }
+                }
+                drawSketchyPoly(this.doorPoly, null, time.isNight ? [60, 40, 30] : C.windowDay);
+                pop();
+            }
+        }
+
+        // ==================== 风车 & 树 ====================
+        class Windmill {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.h = random(50, 90);
+                this.blade = random(25, 40); this.ang = random(TWO_PI); this.spd = random(0.008, 0.025);
+                this.depth = random(10, 15); this.dx = this.depth * 0.8; this.dy = -this.depth * 0.5;
+
+                let bw = 14, tw = 6;
+                let bl = { x: x - bw / 2, y }, br = { x: x + bw / 2, y };
+                let tl = { x: x - tw / 2, y: y - this.h }, tr = { x: x + tw / 2, y: y - this.h };
+                let brD = { x: br.x + this.dx, y: br.y + this.dy }, trD = { x: tr.x + this.dx, y: tr.y + this.dy };
+
+                this.polyFront = subdividePolygon([bl, br, tr, tl], 3, 1);
+                this.polySide = subdividePolygon([br, brD, trD, tr], 3, 1);
+                this.footprint = [bl, br, brD, { x: bl.x + this.dx, y: bl.y + this.dy }];
+                this.topCorners = [tl, tr, trD, { x: tl.x + this.dx, y: tl.y + this.dy }];
+            }
+            update() { this.ang += this.spd; updateSpring(this); }
+            drawShadow() {
+                if (!time.hasShadow) return;
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                let pts = [...this.footprint];
+                for (let p of this.topCorners) {
+                    let adjY = this.y - (this.y - p.y) * sc;
+                    pts.push(shadowProj(p.x, adjY, this.y));
+                }
+                drawSketchyPoly(subdividePolygon(convexHull(pts), 2, 1, true), null, time.shadowCol);
+                let cx = this.x, cy = this.y - this.h * sc;
+                let cp = shadowProj(cx, cy, this.y);
+                for (let i = 0; i < 3; i++) {
+                    let a = this.ang + i * TWO_PI / 3;
+                    let ex = cx + cos(a) * this.blade * sc, ey = cy + sin(a) * this.blade * sc;
+                    let ep = shadowProj(ex, ey, this.y);
+                    drawSketchyLineSegments(subdivideLine(cp.x, cp.y, ep.x, ep.y, 2, 1, 1, true), time.shadowCol, 4);
+                }
+            }
+            draw() {
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                push();
+                translate(this.x, this.y);
+                scale(1, sc);
+                translate(-this.x, -this.y);
+                let dim = time.brightness;
+                let baseCol = lerpArr([139, 69, 19], [100, 80, 70], 1 - dim);
+                drawSketchyPoly(this.polySide, null, baseCol.map(v => v * 0.85));
+                drawSketchyPoly(this.polyFront, null, baseCol);
+                let cx = this.x, cy = this.y - this.h;
+                for (let i = 0; i < 3; i++) {
+                    let a = this.ang + i * TWO_PI / 3;
+                    let ex = cx + cos(a) * this.blade, ey = cy + sin(a) * this.blade;
+                    drawSketchyLineSegments(subdivideLine(cx, cy, ex, ey, 2, 1, 1, true), baseCol, 3);
+                }
+                pop();
+            }
+        }
+
+        class Tree {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.h = random(30, 50);
+                this.type = random(['trunk', 'round']);
+                this.trunkColor = [139, 69, 19]; // 与风车体色一致
+                this.canopyColor = [60, 90, 60]; // 暗绿色
+                this.geom = [];
+                this.silhouette = [];
+
+                if (this.type === 'trunk') {
+                    this.h *= 1.2;
+                    let mainTrunk = subdivideLine(x, y, x + random(-5, 5), y - this.h, 4, 1.5, 0);
+                    this.geom.push({ type: 'line', pts: mainTrunk, w: 4, col: this.trunkColor });
+                    this.silhouette.push({ x: x, y: y }, { x: x, y: y - this.h });
+
+                    for (let i = 0; i < floor(random(3, 5)); i++) {
+                        let ang = random(-PI / 3, PI / 3) - PI / 2;
+                        let len = random(12, 22);
+                        let bx = x; let by = y - this.h * random(0.3, 0.8);
+                        let br = subdivideLine(bx, by, bx + cos(ang) * len, by + sin(ang) * len, 2, 1, 0);
+                        this.geom.push({ type: 'line', pts: br, w: 2.5, col: this.trunkColor });
+                        this.silhouette.push({ x: bx, y: by }, { x: bx + cos(ang) * len, y: by + sin(ang) * len });
+                    }
+                } else {
+                    let r = random(16, 26);
+                    let cx = x + random(-2, 2), cy = y - this.h;
+                    // 树干延伸进树冠，确保无空隙
+                    let trunkTop = cy + r * 0.4;
+                    let trunkPts = [{ x: x - 3, y: y }, { x: x + 3, y: y }, { x: x + 3, y: trunkTop }, { x: x - 3, y: trunkTop }];
+                    this.geom.push({ type: 'poly', pts: subdividePolygon(trunkPts, 1, 0.3), col: this.trunkColor });
+                    this.silhouette.push(...trunkPts);
+
+                    let pts = [];
+                    for (let j = 0; j < 12; j++) {
+                        let a = (j / 12) * TWO_PI, rad = r + random(-4, 4);
+                        pts.push({ x: cx + cos(a) * rad, y: cy + sin(a) * rad });
+                    }
+                    this.geom.push({ type: 'poly', pts: subdividePolygon(pts, 1, 1.2), col: this.canopyColor });
+                    this.silhouette.push(...pts);
+                }
+            }
+
+            update() { updateSpring(this); }
+            drawShadow() {
+                if (!time.hasShadow) return;
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                if (this.type === 'trunk') {
+                    for (let g of this.geom) {
+                        if (g.type === 'line') {
+                            let p1x = g.pts[0], p1y = g.pts[1];
+                            let p2x = g.pts[g.pts.length - 2], p2y = g.pts[g.pts.length - 1];
+                            let adjY1 = this.y - (this.y - p1y) * sc;
+                            let adjY2 = this.y - (this.y - p2y) * sc;
+                            let sp1 = shadowProj(p1x, adjY1, this.y);
+                            let sp2 = shadowProj(p2x, adjY2, this.y);
+                            drawSketchyLineSegments(subdivideLine(sp1.x, sp1.y, sp2.x, sp2.y, 2, 1, 0, true), time.shadowCol, g.w * 2.5);
+                        }
+                    }
+                } else {
+                    if (time.sunMoved || !this.cachedShadow) {
+                        let pts = this.silhouette.map(p => {
+                            let adjY = this.y - (this.y - p.y) * sc;
+                            return shadowProj(p.x, adjY, this.y);
+                        });
+                        pts.push({ x: this.x, y: this.y });
+                        let hull = convexHull(pts);
+                        this.cachedShadow = subdividePolygon(hull, 2, 1, true);
+                    }
+                    drawSketchyPoly(this.cachedShadow, null, time.shadowCol);
+                }
+            }
+
+            draw() {
+                let sc = this._sp ? this._sp.scale : 1;
+                if (sc < 0.01) return;
+                push();
+                translate(this.x, this.y);
+                scale(1, sc);
+                translate(-this.x, -this.y);
+                let dim = time.brightness;
+                for (let g of this.geom) {
+                    let base = g.col;
+                    let fillCol = lerpArr(base, [40, 30, 20], 1 - dim);
+                    if (g.type === 'poly') {
+                        drawSketchyPoly(g.pts, null, fillCol);
+                    } else {
+                        drawSketchyLineSegments(g.pts, fillCol, g.w);
+                    }
+                }
+                pop();
+            }
+        }
+
+        // ==================== 雨滴 & 涟漪 & 雪花 ====================
+        class RainDrop {
+            constructor() { this.init(true); }
+            init(firstTime = false) {
+                this.x = random(-100, width + 100); this.y = firstTime ? random(-height, 0) : random(-200, -50);
+                this.len = random(12, 28); this.thick = random(0.5, 1.8); this.speed = random(14, 24);
+                this.targetY = random(height * 0.3, height - 20); this.tilt = map(this.x, 0, width, -0.12, 0.12);
+            }
+            update() {
+                this.y += this.speed; this.x += this.tilt * this.speed;
+                if (this.y > this.targetY) {
+                    if (weather.rainLevel > 0.2) weather.ripples.push(new Ripple(this.x, this.y));
+                    this.init();
+                }
+            }
+            draw() {
+                stroke(200, 220, 255, 100 * weather.rainLevel); strokeWeight(this.thick);
+                line(this.x, this.y, this.x + this.tilt * this.len, this.y + this.len);
+            }
+        }
+        class Ripple {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.life = 20; this.maxLife = 20;
+                this.numRings = floor(random(2, 6)); this.rings = [];
+                for (let i = 0; i < this.numRings; i++) {
+                    let arcs = []; let numArcs = floor(random(2, 5));
+                    for (let j = 0; j < numArcs; j++) arcs.push({ start: random(TWO_PI), len: random(PI / 4, PI), offset: random(-1.5, 1.5) });
+                    this.rings.push(arcs);
+                }
+            }
+            update() { this.life--; }
+            draw() {
+                let alpha = map(this.life, 0, this.maxLife, 0, 120 * weather.rainLevel);
+                let progress = 1 - (this.life / this.maxLife);
+                noFill(); stroke(220, 230, 255, alpha); strokeWeight(1);
+                for (let i = 0; i < this.rings.length; i++) {
+                    let baseR = (i + 1) * 8 * progress + (i * 3);
+                    let rw = baseR * 2.5, rh = baseR * 0.8;
+                    for (let a of this.rings[i]) {
+                        arc(this.x + a.offset * progress * 5, this.y + a.offset * progress * 2, rw, rh, a.start, a.start + a.len);
+                    }
+                }
+            }
+        }
+        class Snowflake {
+            constructor() { this.init(true); }
+            init(firstTime = false) {
+                this.x = random(-50, width + 50); this.y = firstTime ? random(-height, 0) : random(-100, -10);
+                this.sz = random(2, 5); this.speed = random(1, 3); this.driftSpd = random(0.01, 0.05);
+                this.driftOff = random(TWO_PI); this.targetY = random(height * 0.2, height);
+            }
+            update() {
+                this.y += this.speed; this.x += sin(frameCount * this.driftSpd + this.driftOff) * 0.5;
+                if (this.y > this.targetY) this.init();
+            }
+            draw() {
+                noStroke(); fill(255, 255, 255, 200 * weather.snowLevel);
+                let sz = this.sz * map(weather.intensity, 1, 6, 1, 3);
+                ellipse(this.x, this.y, sz, sz);
+            }
+        }
+
+        function toggleWeather() {
+            if (weather.mode === 'sunny') weather.mode = 'rainy';
+            else if (weather.mode === 'rainy') weather.mode = 'snowy';
+            else weather.mode = 'sunny';
+            let btn = document.getElementById('rainBtn'), icon = document.getElementById('rainIcon'), text = document.getElementById('rainText');
+            btn.classList.remove('active');
+            if (weather.mode === 'rainy') { btn.classList.add('active'); icon.innerText = '🌧️'; text.innerText = '下雨'; }
+            else if (weather.mode === 'snowy') { btn.classList.add('active'); icon.innerText = '❄️'; text.innerText = '下雪'; }
+            else { icon.innerText = '☀️'; text.innerText = '晴朗'; }
+        }
+        function updateIntensity(val) { weather.intensity = parseInt(val); document.getElementById('intVal').innerText = val; }
+
+        // ==================== 时间更新 ====================
+        function updateTime() {
+            if (mouseX !== time.prevX) {
+                time.sunMoved = true;
+                time.prevX = mouseX;
+            } else {
+                time.sunMoved = false;
+            }
+            time.dayP = map(mouseX, 0, width, 0, 1, true);
+            time.nightP = map(mouseY, 0, height, 0, 1, true);
+            time.isNight = time.nightP > 0.65;
+
+            if (time.isNight) {
+                let t = map(time.nightP, 0.65, 1, 0, 1, true);
+                time.bgTop = lerpArr(C.duskTop, C.nightTop, t);
+                time.bgBot = lerpArr(C.duskBot, C.nightBot, t);
+                time.brightness = map(time.nightP, 0.65, 1, 0.7, 0.2);
+                time.hasShadow = false; time.sunElev = 0;
+            } else {
+                time.hasShadow = true;
+                time.brightness = 1.0 - abs(time.dayP - 0.5) * 0.3;
+                time.sunAngle = map(time.dayP, 0, 1, -2.5, -0.6) + PI;
+                time.sunElev = map(abs(time.dayP - 0.5), 0, 0.5, 1.3, 0.35);
+
+                if (time.dayP < 0.5) {
+                    let t = map(time.dayP, 0, 0.5, 0, 1);
+                    time.bgTop = lerpArr(C.dawnTop, C.dayTop, t);
+                    time.bgBot = lerpArr(C.dawnBot, C.dayBot, t);
+                    time.shadowCol = lerpArr(C.shadowDawn, C.shadowDay, t);
+                } else {
+                    let t = map(time.dayP, 0.5, 1, 0, 1);
+                    time.bgTop = lerpArr(C.dayTop, C.duskTop, t);
+                    time.bgBot = lerpArr(C.dayBot, C.duskBot, t);
+                    time.shadowCol = lerpArr(C.shadowDay, C.shadowDusk, t);
+                }
+            }
+
+            weather.rainLevel = lerp(weather.rainLevel, weather.mode === 'rainy' ? 1 : 0, 0.04);
+            weather.snowLevel = lerp(weather.snowLevel, weather.mode === 'snowy' ? 1 : 0, 0.02);
+
+            if (weather.rainLevel > 0.01) {
+                time.bgTop = lerpArr(time.bgTop, [100, 110, 130], weather.rainLevel * 0.7);
+                time.bgBot = lerpArr(time.bgBot, [60, 70, 90], weather.rainLevel * 0.7);
+                time.brightness *= (1 - weather.rainLevel * 0.4);
+                if (weather.rainLevel > 0.5) time.hasShadow = false;
+            }
+            if (weather.snowLevel > 0.01) {
+                time.bgTop = lerpArr(time.bgTop, [160, 165, 175], weather.snowLevel);
+                time.bgBot = lerpArr(time.bgBot, [160, 165, 175], weather.snowLevel);
+                time.brightness *= (1 + weather.snowLevel * 0.1);
+                if (weather.snowLevel > 0.5) time.hasShadow = false;
+            }
+        }
+
+        // ==================== 场景生成 ====================
+        function generate() {
+            houses = []; windmills = []; trees = []; lamps = []; stars = []; groundDeets = []; allObjects = [];
+
+            for (let i = 0; i < 18; i++) {
+                let h = new House(random(50, width - 80), random(height * 0.25, height - 50), random(28, 55), random(22, 36), floor(random(1, 4)));
+                houses.push(h); allObjects.push(h);
+            }
+            for (let i = 0; i < 5; i++) {
+                let w = new Windmill(random(40, width - 40), random(height * 0.3, height - 80));
+                windmills.push(w); allObjects.push(w);
+            }
+            for (let i = 0; i < 12; i++) {
+                let tx, ty, ok = false, tries = 0;
+                while (!ok && tries < 50) {
+                    tx = random(width); ty = random(height * 0.2, height - 30);
+                    ok = true;
+                    for (let h of houses) {
+                        if (tx > h.x - 15 && tx < h.x + h.w + 15 && ty > h.y - 30 && ty < h.y + 10) {
+                            ok = false; break;
+                        }
+                    }
+                    for (let w of windmills) {
+                        if (tx > w.x - 20 && tx < w.x + 20 && ty > w.y - 20 && ty < w.y + 10) {
+                            ok = false; break;
+                        }
+                    }
+                    tries++;
+                }
+                let t = new Tree(tx, ty);
+                trees.push(t); allObjects.push(t);
+            }
+            for (let i = 0; i < 6; i++) {
+                let l = new StreetLamp(random(60, width - 60), random(height * 0.3, height - 40));
+                lamps.push(l); allObjects.push(l);
+            }
+            for (let i = 0; i < 60; i++) stars.push({ x: random(width), y: random(height * 0.6), s: random(1, 3), p: random(TWO_PI) });
+            // Removed ground clutter as per user request
+            for (let i = 0; i < 0; i++) {
+                let x = random(width), y = random(height);
+                if (random() > 0.4) {
+                    let len = random(6, 18), ang = random(PI);
+                    groundDeets.push({ type: 'l', geom: subdivideLine(x, y, x + cos(ang) * len, y + sin(ang) * len, 2, 0.5, 0) });
+                } else {
+                    let sz = random(2, 6);
+                    groundDeets.push({ type: 's', geom: subdividePolygon([{ x: x - sz, y }, { x, y: y - sz / 2 }, { x: x + sz, y }, { x, y: y + sz / 2 }], 1, 0.5) });
+                }
+            }
+
+            allObjects.sort((a, b) => a.y - b.y);
+
+            // 为每个对象初始化弹簧动画，按 y 坐标交错延迟
+            for (let i = 0; i < allObjects.length; i++) {
+                let delay = Math.floor(i * 3 + Math.random() * 5);
+                initSpring(allObjects[i], delay);
+            }
+        }
+
+        // ==================== p5.js 主循环 ====================
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            generate();
+            for (let i = 0; i < 600; i++) weather.drops.push(new RainDrop());
+            for (let i = 0; i < 600; i++) weather.flakes.push(new Snowflake());
+        }
+
+        function draw() {
+            updateTime();
+
+            let tArr = time.bgTop, bArr = time.bgBot;
+            for (let y = 0; y < height; y += 4) {
+                let t = map(y, 0, height, 0, 1);
+                let c = lerpArr(tArr, bArr, t);
+                stroke(...c); strokeWeight(4);
+                line(0, y, width, y);
+            }
+
+            if (time.isNight) {
+                let vis = map(time.nightP, 0.65, 1, 0, 1, true);
+                noStroke();
+                for (let s of stars) {
+                    let twinkle = (sin(frameCount * 0.05 + s.p) + 1) / 2;
+                    fill(255, 255, 255, 200 * vis * twinkle);
+                    ellipse(s.x, s.y, s.s, s.s);
+                }
+                let moonY = map(time.nightP, 0.65, 1, -50, height * 0.25);
+                fill(255, 250, 220, 255 * vis);
+                ellipse(width * 0.8, moonY, 40, 40);
+                fill(time.bgTop[0], time.bgTop[1], time.bgTop[2], 255 * vis);
+                ellipse(width * 0.8 + 12, moonY - 5, 36, 36);
+            }
+
+            let gDim = time.brightness;
+            let strokeC = time.isNight ? [40, 40, 50] : [60, 40, 30];
+            let groundCol = lerpArr([212, 147, 42], [30, 30, 40], 1 - gDim);
+            for (let d of groundDeets) {
+                if (d.type === 'l') {
+                    drawSketchyLineSegments(d.geom, strokeC, 1.5);
+                } else {
+                    drawSketchyPoly(d.geom, strokeC, groundCol, 1);
+                }
+            }
+
+            if (weather.snowLevel > 0.01) {
+                noStroke(); fill(235, 240, 245, 240 * weather.snowLevel);
+                rect(0, 0, width, height);
+            }
+
+            if (weather.rainLevel > 0.01) {
+                for (let i = weather.ripples.length - 1; i >= 0; i--) {
+                    let r = weather.ripples[i];
+                    r.update(); r.draw();
+                    if (r.life <= 0) weather.ripples.splice(i, 1);
+                }
+            }
+
+            for (let o of allObjects) { if (o.update) o.update(); }
+            for (let o of allObjects) if (o.drawShadow) o.drawShadow();
+            for (let o of allObjects) {
+                if (o.draw) o.draw();
+                if (o.drawGlow) o.drawGlow();
+            }
+
+            if (weather.rainLevel > 0.01) {
+                let count = floor(map(weather.intensity, 1, 6, 100, 600));
+                for (let i = 0; i < count; i++) {
+                    let d = weather.drops[i]; d.update(); d.draw();
+                }
+            }
+            if (weather.snowLevel > 0.01) {
+                let count = floor(map(weather.intensity, 1, 6, 100, 600));
+                for (let i = 0; i < count; i++) {
+                    let f = weather.flakes[i]; f.update(); f.draw();
+                }
+            }
+
+            if (time.isNight) {
+                let dark = map(time.nightP, 0.65, 1, 0, 120, true);
+                fill(10, 15, 35, dark);
+                rect(0, 0, width, height);
+            }
+        }
+
+        function windowResized() { resizeCanvas(windowWidth, windowHeight); generate(); }
+        function mousePressed() {
+            if (mouseY > 100 || mouseX < width - 150) generate();
+        }
+
+    </script>
+</body>
+
+</html>

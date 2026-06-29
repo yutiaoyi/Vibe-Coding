@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>平面温馨卧室</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+      html, body { margin: 0; padding: 0; overflow: hidden; background: #f6efe2; }
+      canvas { display: block; }
+      .hint {
+        position: fixed; left: 10px; top: 8px; font: 13px/1.4 system-ui, sans-serif;
+        color: #6b4f3a; pointer-events: none; max-width: 90vw;
+        text-shadow: 0 0 10px #fff8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hint">点击画布：小物会像画册/小镇示例一样弹簧弹出 · 手绘素材来自 <code>cute-assets-gallery.html</code></div>
+    <script>
+      // 从 cute-assets-gallery.html 抽取的 STYLE / PAL / 工具函数与下列 draw* 保持一致
+      const STYLE = {
+        bg: [248, 238, 220],
+        ink: [60, 40, 30],
+        inkSoft: [90, 70, 55],
+        card: [255, 255, 255, 220],
+        cardStroke: [255, 255, 255, 140],
+        strokeW: 2.2,
+        jitter: 1.2,
+        polySeg: 3,
+      };
+
+
+      function lerpArr(a, b, t) {
+        return a.map((v, i) => v + (b[i] - v) * t);
+      }
+
+      function subdivideLine(x1, y1, x2, y2, segments = 3, jitter = 1.2, extend = 1.5, dynamic = false) {
+        const pts = [];
+        const dx = x2 - x1,
+          dy = y2 - y1;
+        const len = sqrt(dx * dx + dy * dy);
+        if (len === 0) return [x1, y1, x2, y2];
+        const ux = dx / len,
+          uy = dy / len;
+        const startX = x1 - ux * extend,
+          startY = y1 - uy * extend;
+        const endX = x2 + ux * extend,
+          endY = y2 + uy * extend;
+        for (let i = 0; i <= segments; i++) {
+          const t = i / segments;
+          let x = lerp(startX, endX, t);
+          let y = lerp(startY, endY, t);
+          if (i > 0 && i < segments) {
+            if (dynamic) {
+              x += (noise(x * 0.02, y * 0.02, frameCount * 0.01) - 0.5) * 2 * jitter;
+              y += (noise(x * 0.02 + 100, y * 0.02 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+            } else {
+              x += random(-jitter, jitter);
+              y += random(-jitter, jitter);
+            }
+          }
+          pts.push(x, y);
+        }
+        return pts;
+      }
+
+      function subdividePolygon(vertices, segments = 3, jitter = 1.2, dynamic = false) {
+        const pts = [];
+        for (let i = 0; i < vertices.length; i++) {
+          const p1 = vertices[i];
+          const p2 = vertices[(i + 1) % vertices.length];
+          for (let j = 0; j < segments; j++) {
+            const t = j / segments;
+            let x = lerp(p1.x, p2.x, t);
+            let y = lerp(p1.y, p2.y, t);
+            if (j > 0) {
+              if (dynamic) {
+                x += (noise(x * 0.02, y * 0.02, frameCount * 0.01) - 0.5) * 2 * jitter;
+                y += (noise(x * 0.02 + 100, y * 0.02 + 100, frameCount * 0.01) - 0.5) * 2 * jitter;
+              } else {
+                x += random(-jitter, jitter);
+                y += random(-jitter, jitter);
+              }
+            }
+            pts.push(x, y);
+          }
+        }
+        return pts;
+      }
+
+      function drawSketchyPoly(pts, strokeCol, fillCol, weight = STYLE.strokeW) {
+        if (fillCol) fill(...fillCol);
+        else noFill();
+        if (strokeCol) {
+          stroke(...strokeCol);
+          strokeWeight(weight);
+          strokeJoin(ROUND);
+          strokeCap(ROUND);
+        } else noStroke();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape(CLOSE);
+      }
+
+      function drawSketchyLineSegments(pts, strokeCol, weight = STYLE.strokeW) {
+        if (strokeCol) {
+          stroke(...strokeCol);
+          strokeWeight(weight);
+          strokeJoin(ROUND);
+          strokeCap(ROUND);
+        } else noStroke();
+        noFill();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape();
+      }
+
+      function skLine(x1, y1, x2, y2, w = STYLE.strokeW, j = STYLE.jitter) {
+        drawSketchyLineSegments(subdivideLine(x1, y1, x2, y2, 3, j, 1.2), STYLE.ink, w);
+      }
+
+      function skPoly(points, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW, seg = STYLE.polySeg, j = STYLE.jitter) {
+        drawSketchyPoly(subdividePolygon(points, seg, j), strokeCol, fillCol, w);
+      }
+
+      function skEllipse(x, y, rx, ry, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW) {
+        const pts = [];
+        const n = 18;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * TWO_PI;
+          const j = (noise(i * 0.3, rx * 0.02, ry * 0.02) - 0.5) * STYLE.jitter;
+          pts.push({ x: x + cos(a) * (rx + j), y: y + sin(a) * (ry + j) });
+        }
+        skPoly(pts, fillCol, strokeCol, w, 2, 0.8);
+      }
+
+      function cuteFace(x, y, s, mood = 0) {
+        // mood: -1 sad, 0 neutral, 1 happy
+        const eyeY = y - 2 * s;
+        noStroke();
+        fill(40, 30, 25, 230);
+        ellipse(x - 5 * s, eyeY, 2.4 * s, 3.2 * s);
+        ellipse(x + 5 * s, eyeY, 2.4 * s, 3.2 * s);
+        fill(255, 170, 170, 120);
+        ellipse(x - 8 * s, y + 2 * s, 5.2 * s, 3.6 * s);
+        ellipse(x + 8 * s, y + 2 * s, 5.2 * s, 3.6 * s);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4 * s);
+        noFill();
+        const mY = y + 6 * s;
+        if (mood >= 1) arc(x, mY, 10 * s, 7 * s, 0, PI);
+        else if (mood <= -1) arc(x, mY + 4 * s, 10 * s, 7 * s, PI, TWO_PI);
+        else line(x - 4.5 * s, mY, x + 4.5 * s, mY);
+      }
+
+      function ribbonBow(x, y, s, col) {
+        skEllipse(x, y, 3.2 * s, 2.2 * s, col, STYLE.ink, 1.6);
+        skEllipse(x - 4.2 * s, y, 4.2 * s, 2.8 * s, col, STYLE.ink, 1.6);
+        skEllipse(x + 4.2 * s, y, 4.2 * s, 2.8 * s, col, STYLE.ink, 1.6);
+      }
+      // =========================
+      const PAL = {
+        cream: [255, 248, 235],
+        cocoa: [170, 120, 95],
+        caramel: [232, 180, 95],
+        honey: [245, 205, 110],
+        blush: [255, 190, 190],
+        sky: [190, 220, 245],
+        mint: [170, 215, 190],
+        leaf: [120, 165, 110],
+        red: [210, 95, 80],
+        pink: [245, 160, 175],
+        blue: [120, 165, 215],
+        gray: [160, 165, 175],
+      };
+      function drawBlanketStack({ s, hovered }) {
+        for (let i = 0; i < 3; i++) {
+          const col = i === 0 ? PAL.sky : i === 1 ? PAL.mint : PAL.honey;
+          skPoly(
+            [
+              { x: -14 * s, y: (20 + i * 4) * s },
+              { x: 14 * s, y: (22 + i * 4) * s },
+              { x: 12 * s, y: (30 + i * 4) * s },
+              { x: -12 * s, y: (28 + i * 4) * s },
+            ],
+            col,
+            STYLE.ink,
+            hovered ? 2.6 : 2.0
+          );
+        }
+      }
+
+      function drawPillow({ s, hovered }) {
+        skEllipse(0, 24 * s, 18 * s, 12 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-10 * s, 24 * s, 10 * s, 24 * s, 1.2, 0.5);
+        skLine(0, 18 * s, 0, 30 * s, 1.0, 0.4);
+      }
+
+      function drawNightLamp({ s, hovered }) {
+        skEllipse(0, 30 * s, 16 * s, 6 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 18 * s },
+            { x: 10 * s, y: 18 * s },
+            { x: 8 * s, y: 30 * s },
+            { x: -8 * s, y: 30 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2.0
+        );
+        noStroke();
+        fill(255, 230, 170, hovered ? 140 : 110);
+        ellipse(0, 18 * s, 22 * s, 22 * s);
+      }
+
+      function drawAlarmClock({ s, hovered }) {
+        skEllipse(0, 24 * s, 16 * s, 16 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skLine(-10 * s, 12 * s, -10 * s, 16 * s, 2.0, 0.6);
+        skLine(10 * s, 12 * s, 10 * s, 16 * s, 2.0, 0.6);
+        skLine(0, 24 * s, 0, 18 * s, 1.6, 0.6);
+        skLine(0, 24 * s, 6 * s, 24 * s, 1.6, 0.6);
+        skEllipse(0, 30 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+      }
+
+      function drawCocoaMug({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 12 * s },
+            { x: 10 * s, y: 12 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -12 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(10 * s, 20 * s, 6 * s, 8 * s, PAL.cream, STYLE.ink, 2.0);
+        skEllipse(10 * s, 20 * s, 3 * s, 5 * s, STYLE.bg, STYLE.bg, 0);
+        skEllipse(-1 * s, 14 * s, 11 * s, 3.5 * s, PAL.cocoa, STYLE.ink, 1.8);
+        // steam
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.4);
+        noFill();
+        for (let i = -1; i <= 1; i++) {
+          const x = (i * 4 + random(-0.6, 0.6)) * s;
+          beginShape();
+          for (let k = 0; k < 5; k++) {
+            const yy = (8 - k * 3) * s;
+            const xx = x + sin(k * 0.9 + frameCount * 0.03) * 1.2 * s;
+            vertex(xx, yy);
+          }
+          endShape();
+        }
+        cuteFace(-2 * s, 24 * s, 0.42 * s, 1);
+      }
+
+      function drawBookStand({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 20 * s },
+            { x: 16 * s, y: 20 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -16 * s, y: 10 * s },
+            { x: 16 * s, y: 10 * s },
+            { x: 12 * s, y: 20 * s },
+            { x: -12 * s, y: 20 * s },
+          ],
+          PAL.red,
+          STYLE.ink,
+          2.0
+        );
+        // books
+        skPoly(
+          [
+            { x: -10 * s, y: 24 * s },
+            { x: -2 * s, y: 24 * s },
+            { x: -2 * s, y: 32 * s },
+            { x: -10 * s, y: 32 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          1.6
+        );
+        skPoly(
+          [
+            { x: 0 * s, y: 24 * s },
+            { x: 10 * s, y: 24 * s },
+            { x: 10 * s, y: 32 * s },
+            { x: 0 * s, y: 32 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          1.6
+        );
+      }
+
+      function drawPottedPlant({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 18 * s },
+            { x: 12 * s, y: 18 * s },
+            { x: 9 * s, y: 30 * s },
+            { x: -9 * s, y: 30 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -8 * s, y: 10 * s },
+            { x: -2 * s, y: 0 * s },
+            { x: 2 * s, y: 10 * s },
+            { x: 0 * s, y: 18 * s },
+          ],
+          PAL.leaf
+        );
+        skPoly(
+          [
+            { x: 2 * s, y: 10 * s },
+            { x: 8 * s, y: 0 * s },
+            { x: 12 * s, y: 10 * s },
+            { x: 4 * s, y: 18 * s },
+          ],
+          lerpArr(PAL.leaf, PAL.mint, 0.25)
+        );
+        cuteFace(0, 24 * s, 0.4 * s, 1);
+      }
+
+      function drawCactusPot({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 22 * s },
+            { x: 12 * s, y: 22 * s },
+            { x: 9 * s, y: 34 * s },
+            { x: -9 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -4 * s, y: 8 * s },
+            { x: 4 * s, y: 8 * s },
+            { x: 6 * s, y: 24 * s },
+            { x: -6 * s, y: 24 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          2.0
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: -4 * s, y: 14 * s },
+            { x: -4 * s, y: 22 * s },
+            { x: -10 * s, y: 22 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.8
+        );
+        skEllipse(0, 10 * s, 2.0 * s, 2.0 * s, PAL.pink, STYLE.ink, 1.0);
+      }
+
+      function drawStringLights({ s, hovered }) {
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.6);
+        noFill();
+        beginShape();
+        for (let i = 0; i <= 7; i++) {
+          const xx = lerp(-18 * s, 18 * s, i / 7);
+          const yy = (16 + sin(i * 0.7) * 4) * s;
+          vertex(xx, yy);
+        }
+        endShape();
+        noStroke();
+        for (let i = 0; i < 7; i++) {
+          const xx = lerp(-16 * s, 16 * s, i / 6);
+          const yy = (16 + sin(i * 0.7) * 4) * s;
+          const col = i % 3 === 0 ? PAL.honey : i % 3 === 1 ? PAL.pink : PAL.sky;
+          fill(col[0], col[1], col[2], hovered ? 240 : 210);
+          ellipse(xx, yy + 3 * s, 5 * s, 5 * s);
+        }
+      }
+
+      function drawWallPoster({ s, hovered }) {
+        skPoly(
+          [
+            { x: -12 * s, y: 10 * s },
+            { x: 12 * s, y: 10 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 20 * s, 8 * s, 8 * s, PAL.sky, STYLE.ink, 1.6);
+        skPoly(
+          [
+            { x: -6 * s, y: 30 * s },
+            { x: 0, y: 24 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.4
+        );
+        skEllipse(0, 12 * s, 2.0 * s, 2.0 * s, PAL.pink, STYLE.ink, 0.8);
+      }
+
+      function drawPhotoFrame({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 10 * s },
+            { x: 14 * s, y: 10 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.caramel,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -10 * s, y: 14 * s },
+            { x: 10 * s, y: 14 * s },
+            { x: 10 * s, y: 30 * s },
+            { x: -10 * s, y: 30 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          1.8
+        );
+        // tiny picture: sun + hill
+        skEllipse(-4 * s, 18 * s, 2.4 * s, 2.4 * s, PAL.honey, STYLE.ink, 0.9);
+        skPoly(
+          [
+            { x: -10 * s, y: 30 * s },
+            { x: -2 * s, y: 24 * s },
+            { x: 6 * s, y: 30 * s },
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.2
+        );
+      }
+
+      function drawMusicBox({ s, hovered }) {
+        skPoly(
+          [
+            { x: -14 * s, y: 22 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: 12 * s, y: 34 * s },
+            { x: -12 * s, y: 34 * s },
+          ],
+          PAL.cocoa,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skPoly(
+          [
+            { x: -14 * s, y: 14 * s },
+            { x: 14 * s, y: 14 * s },
+            { x: 14 * s, y: 22 * s },
+            { x: -14 * s, y: 22 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          2.0
+        );
+        // note
+        skLine(2 * s, 12 * s, 2 * s, 6 * s, 1.6, 0.6);
+        skLine(2 * s, 6 * s, 8 * s, 8 * s, 1.6, 0.6);
+        skEllipse(0, 12 * s, 3.4 * s, 2.8 * s, PAL.pink, STYLE.ink, 1.4);
+      }
+
+      function drawCandle({ s, hovered }) {
+        skPoly(
+          [
+            { x: -8 * s, y: 18 * s },
+            { x: 8 * s, y: 18 * s },
+            { x: 10 * s, y: 34 * s },
+            { x: -10 * s, y: 34 * s },
+          ],
+          PAL.cream,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skEllipse(0, 18 * s, 8 * s, 4 * s, PAL.cream, STYLE.ink, 2.0);
+        skLine(0, 14 * s, 0, 10 * s, 1.4, 0.5);
+        skEllipse(0, 8 * s, 3.2 * s, 4.5 * s, PAL.honey, STYLE.ink, 1.6);
+        noStroke();
+        fill(255, 200, 120, hovered ? 160 : 120);
+        ellipse(0, 10 * s, 20 * s, 20 * s);
+      }
+
+      function drawRadio({ s, hovered }) {
+        skPoly(
+          [
+            { x: -16 * s, y: 20 * s },
+            { x: 16 * s, y: 20 * s },
+            { x: 14 * s, y: 34 * s },
+            { x: -14 * s, y: 34 * s },
+          ],
+          PAL.blue,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        skLine(-10 * s, 20 * s, 6 * s, 10 * s, 1.6, 0.6);
+        skEllipse(-6 * s, 27 * s, 6.5 * s, 6.5 * s, PAL.cream, STYLE.ink, 2.0);
+        for (let i = 0; i < 5; i++) skLine(6 * s, (24 + i * 2) * s, 12 * s, (24 + i * 2) * s, 1.2, 0.5);
+      }
+
+      function drawPaperLantern({ s, hovered }) {
+        skEllipse(0, 22 * s, 14 * s, 16 * s, PAL.honey, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(0, 14 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+        skEllipse(0, 30 * s, 10 * s, 4 * s, PAL.gray, STYLE.ink, 1.8);
+        for (let i = -2; i <= 2; i++) skLine(i * 4 * s, 14 * s, i * 4 * s, 30 * s, 1.2, 0.5);
+        noStroke();
+        fill(255, 230, 170, hovered ? 130 : 100);
+        ellipse(0, 22 * s, 26 * s, 26 * s);
+      }
+
+      function drawStarOrnament({ s, hovered }) {
+        skLine(0, 6 * s, 0, 12 * s, 1.6, 0.5);
+        skPoly(
+          [
+            { x: 0, y: 10 * s },
+            { x: 3.5 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 5 * s, y: 20 * s },
+            { x: 7 * s, y: 28 * s },
+            { x: 0, y: 23 * s },
+            { x: -7 * s, y: 28 * s },
+            { x: -5 * s, y: 20 * s },
+            { x: -10 * s, y: 16 * s },
+            { x: -3.5 * s, y: 16 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          hovered ? 2.8 : 2.2
+        );
+        noStroke();
+        fill(255, 230, 170, hovered ? 120 : 90);
+        ellipse(0, 20 * s, 28 * s, 28 * s);
+      }
+
+      function drawHeartOrnament({ s, hovered }) {
+        skLine(0, 6 * s, 0, 12 * s, 1.6, 0.5);
+        skEllipse(-5 * s, 18 * s, 7 * s, 7 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skEllipse(5 * s, 18 * s, 7 * s, 7 * s, PAL.pink, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -12 * s, y: 20 * s },
+            { x: 0, y: 34 * s },
+            { x: 12 * s, y: 20 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          2.0
+        );
+        noStroke();
+        fill(255, 200, 210, hovered ? 120 : 90);
+        ellipse(0, 22 * s, 28 * s, 28 * s);
+      }
+
+      function drawKitty({ s, hovered }) {
+        skEllipse(0, 6 * s, 18 * s, 14 * s, PAL.cream, STYLE.ink, hovered ? 2.8 : 2.2);
+        skPoly(
+          [
+            { x: -10 * s, y: 2 * s },
+            { x: -2 * s, y: -6 * s },
+            { x: -1 * s, y: 4 * s },
+          ],
+          PAL.cream
+        );
+        skPoly(
+          [
+            { x: 10 * s, y: 2 * s },
+            { x: 2 * s, y: -6 * s },
+            { x: 1 * s, y: 4 * s },
+          ],
+          PAL.cream
+        );
+        cuteFace(0, 10 * s, 0.6 * s, 0);
+        stroke(...STYLE.inkSoft);
+        strokeWeight(1.2);
+        for (let i = -1; i <= 1; i++) {
+          skLine(-6 * s, (12 + i * 2) * s, -16 * s, (10 + i * 2) * s, 1.6, 0.6);
+          skLine(6 * s, (12 + i * 2) * s, 16 * s, (10 + i * 2) * s, 1.6, 0.6);
+        }
+      }
+
+      function drawToyBlocks({ s, hovered }) {
+        const w = hovered ? 2.8 : 2.2;
+        skPoly(
+          [
+            { x: -16 * s, y: 22 * s },
+            { x: -2 * s, y: 22 * s },
+            { x: -2 * s, y: 36 * s },
+            { x: -16 * s, y: 36 * s },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: 0, y: 18 * s },
+            { x: 16 * s, y: 18 * s },
+            { x: 16 * s, y: 36 * s },
+            { x: 0, y: 36 * s },
+          ],
+          PAL.honey,
+          STYLE.ink,
+          w
+        );
+        skPoly(
+          [
+            { x: -2 * s, y: 16 * s },
+            { x: 10 * s, y: 16 * s },
+            { x: 10 * s, y: 28 * s },
+            { x: -2 * s, y: 28 * s },
+          ],
+          PAL.pink,
+          STYLE.ink,
+          w
+        );
+        fill(...STYLE.inkSoft);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(10 * s);
+        text("A", -9 * s, 29 * s);
+        text("B", 7 * s, 27 * s);
+      }
+
+
+      function applySpring(o) {
+        if (!o.sp) o.sp = { sc: 0, v: 0 };
+        const target = 1;
+        const force = (target - o.sp.sc) * 0.11;
+        o.sp.v = (o.sp.v + force) * 0.82;
+        o.sp.sc += o.sp.v;
+        if (o.sp.sc > 1.35) o.sp.sc = 1.35;
+        if (o.sp.sc < -0.05) o.sp.sc = -0.05;
+      }
+
+      /** 锚点 (cx,cy) 为脚底贴地/贴墙点；局部 y 向下，foot 为素材最下端 y/s 比例（约 34） */
+      class FlatProp {
+        constructor(cx, cy, s, foot, seed, drawFn, z) {
+          this.cx = cx;
+          this.cy = cy;
+          this.s = s;
+          this.foot = foot;
+          this.seed = seed;
+          this.drawFn = drawFn;
+          this.z = z;
+          this.sp = { sc: 0, v: random(0.1, 0.22) };
+        }
+        update() {
+          applySpring(this);
+        }
+        draw() {
+          randomSeed(this.seed);
+          push();
+          translate(this.cx, this.cy);
+          const sc = this.sp.sc;
+          scale(sc);
+          translate(0, (1 - sc) * -18);
+          translate(0, -this.foot * this.s);
+          this.drawFn({ s: this.s, hovered: false });
+          pop();
+        }
+      }
+
+      let props = [];
+
+      function drawBackdrop(floorY, wallTop) {
+        randomSeed(4242);
+        noStroke();
+        for (let i = 6; i >= 1; i--) {
+          fill(255, 228, 200, 6 * i);
+          ellipse(width * 0.22, wallTop + 40, 220 * i, 180 * i);
+          fill(210, 230, 250, 5 * i);
+          ellipse(width * 0.88, wallTop + 30, 200 * i, 160 * i);
+        }
+        fill(...STYLE.bg);
+        rect(0, wallTop, width, floorY - wallTop + 8);
+        fill(245, 232, 210);
+        rect(0, floorY - 4, width, height - floorY + 8);
+        const wx0 = width * 0.18,
+          wx1 = width * 0.82,
+          wy0 = wallTop + height * 0.08,
+          wy1 = floorY - height * 0.08;
+        skPoly(
+          [
+            { x: wx0, y: wy0 },
+            { x: wx1, y: wy0 },
+            { x: wx1, y: wy1 },
+            { x: wx0, y: wy1 },
+          ],
+          [190, 220, 250],
+          STYLE.inkSoft,
+          1.6
+        );
+        fill(255, 252, 245, 180);
+        rect(wx0 + 8, wy0 + 10, wx1 - wx0 - 16, (wy1 - wy0) * 0.35, 6);
+        skLine(wx0, wy1, wx1, wy1, 2.2, 0.7);
+      }
+
+      function buildScene() {
+        const W = width,
+          H = height;
+        const floorY = H * 0.72;
+        const wallTop = H * 0.08;
+        const bs = min(W, H) / 300;
+        props = [
+          new FlatProp(W * 0.5, wallTop + H * 0.05, bs * 2.2, 22, 2001, drawStringLights, 2),
+          new FlatProp(W * 0.16, wallTop + H * 0.2, bs * 1.05, 34, 2002, drawStarOrnament, 4),
+          new FlatProp(W * 0.84, wallTop + H * 0.22, bs * 1.05, 34, 2003, drawHeartOrnament, 5),
+          new FlatProp(W * 0.28, wallTop + H * 0.2, bs * 1.15, 34, 2004, drawWallPoster, 6),
+          new FlatProp(W * 0.72, wallTop + H * 0.18, bs * 1.05, 34, 2005, drawPhotoFrame, 7),
+          new FlatProp(W * 0.42, wallTop + H * 0.38, bs * 1.25, 34, 2006, drawPaperLantern, 8),
+
+          new FlatProp(W * 0.12, floorY, bs * 1.2, 36, 3001, drawToyBlocks, 20),
+          new FlatProp(W * 0.26, floorY, bs * 1.25, 34, 3002, drawBookStand, 21),
+          new FlatProp(W * 0.44, floorY, bs * 1.85, 42, 3003, drawBlanketStack, 22),
+          new FlatProp(W * 0.39, floorY - bs * 26, bs * 1.15, 30, 3004, drawPillow, 24),
+          new FlatProp(W * 0.52, floorY - bs * 24, bs * 1.12, 30, 3005, drawPillow, 25),
+          new FlatProp(W * 0.47, floorY - bs * 38, bs * 1.0, 20, 3006, drawKitty, 28),
+
+          new FlatProp(W * 0.62, floorY, bs * 1.15, 34, 4001, drawMusicBox, 30),
+          new FlatProp(W * 0.7, floorY, bs * 1.2, 34, 4002, drawNightLamp, 32),
+          new FlatProp(W * 0.77, floorY, bs * 1.05, 34, 4003, drawAlarmClock, 33),
+          new FlatProp(W * 0.84, floorY, bs * 1.1, 34, 4004, drawCocoaMug, 34),
+
+          new FlatProp(W * 0.9, floorY, bs * 1.15, 30, 5001, drawPottedPlant, 36),
+          new FlatProp(W * 0.56, floorY - bs * 8, bs * 0.95, 34, 5002, drawCactusPot, 27),
+          new FlatProp(W * 0.34, floorY - bs * 2, bs * 1.0, 34, 5003, drawRadio, 29),
+          new FlatProp(W * 0.2, floorY - bs * 4, bs * 1.05, 34, 5004, drawCandle, 31),
+        ];
+      }
+
+      function kickPop() {
+        for (const p of props) {
+          p.sp.sc = max(0.08, p.sp.sc * 0.35);
+          p.sp.v += random(0.35, 0.55);
+        }
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        randomSeed(20260504);
+        buildScene();
+      }
+
+      function draw() {
+        randomSeed(20260504);
+        const floorY = height * 0.72;
+        const wallTop = height * 0.08;
+        background(...STYLE.bg);
+        drawBackdrop(floorY, wallTop);
+
+        props.sort((a, b) => a.z - b.z);
+        for (const p of props) p.update();
+        for (const p of props) p.draw();
+
+        fill(...STYLE.inkSoft);
+        noStroke();
+        textAlign(CENTER);
+        textSize(14);
+        text("平面温馨卧室 · 素材来自画册手绘风", width / 2, height - 18);
+      }
+
+      function mousePressed() {
+        kickPop();
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        buildScene();
+      }
+
+    </script>
+  </body>
+</html>

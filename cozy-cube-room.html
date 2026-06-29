@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>立方体小房间 · 温馨卧室</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #f4e8d8;
+      }
+      canvas {
+        display: block;
+      }
+      .hint {
+        position: fixed;
+        left: 12px;
+        top: 10px;
+        font: 13px/1.45 system-ui, sans-serif;
+        color: #6b4f3a;
+        pointer-events: none;
+        max-width: min(360px, 92vw);
+        text-shadow: 0 0 8px #fdf5e6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hint">点击屏幕：房间里的小物会一起弹簧式「跳出来」</div>
+    <script>
+      const STYLE = {
+        ink: [58, 42, 32],
+        inkSoft: [92, 72, 55],
+        strokeW: 2.1,
+        jitter: 1.05,
+        polySeg: 3,
+      };
+      const PAL = {
+        wall: [255, 244, 228],
+        wallDeep: [248, 228, 205],
+        floor: [225, 188, 148],
+        wood: [188, 138, 98],
+        woodDark: [150, 105, 72],
+        cream: [255, 250, 240],
+        bedding: [240, 200, 215],
+        bedding2: [220, 235, 245],
+        mint: [160, 210, 175],
+        lamp: [255, 248, 200],
+        sky: [170, 210, 245],
+        rugA: [230, 160, 140],
+        rugB: [245, 210, 185],
+      };
+
+      function subdivideLine(x1, y1, x2, y2, segments = 3, jitter = 1.2, extend = 1.2) {
+        const pts = [];
+        const dx = x2 - x1,
+          dy = y2 - y1;
+        const len = sqrt(dx * dx + dy * dy);
+        if (len === 0) return [x1, y1, x2, y2];
+        const ux = dx / len,
+          uy = dy / len;
+        const sx = x1 - ux * extend,
+          sy = y1 - uy * extend;
+        const ex = x2 + ux * extend,
+          ey = y2 + uy * extend;
+        for (let i = 0; i <= segments; i++) {
+          const t = i / segments;
+          let x = lerp(sx, ex, t);
+          let y = lerp(sy, ey, t);
+          if (i > 0 && i < segments) {
+            x += random(-jitter, jitter);
+            y += random(-jitter, jitter);
+          }
+          pts.push(x, y);
+        }
+        return pts;
+      }
+
+      function subdividePolygon(vertices, segments = 3, jitter = 1.0) {
+        const pts = [];
+        for (let i = 0; i < vertices.length; i++) {
+          const p1 = vertices[i],
+            p2 = vertices[(i + 1) % vertices.length];
+          for (let j = 0; j < segments; j++) {
+            const t = j / segments;
+            let x = lerp(p1.x, p2.x, t);
+            let y = lerp(p1.y, p2.y, t);
+            if (j > 0) {
+              x += random(-jitter, jitter);
+              y += random(-jitter, jitter);
+            }
+            pts.push(x, y);
+          }
+        }
+        return pts;
+      }
+
+      function drawSketchyPoly(pts, strokeCol, fillCol, weight = STYLE.strokeW) {
+        if (fillCol) fill(...fillCol);
+        else noFill();
+        if (strokeCol) {
+          stroke(...strokeCol);
+          strokeWeight(weight);
+          strokeJoin(ROUND);
+          strokeCap(ROUND);
+        } else noStroke();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape(CLOSE);
+      }
+
+      function drawSketchyLineOpen(pts, strokeCol, weight = STYLE.strokeW) {
+        stroke(...strokeCol);
+        strokeWeight(weight);
+        strokeJoin(ROUND);
+        strokeCap(ROUND);
+        noFill();
+        beginShape();
+        for (let i = 0; i < pts.length; i += 2) vertex(pts[i], pts[i + 1]);
+        endShape();
+      }
+
+      function skLine(x1, y1, x2, y2, w = STYLE.strokeW, j = STYLE.jitter) {
+        drawSketchyLineOpen(subdivideLine(x1, y1, x2, y2, 3, j, 1.0), STYLE.ink, w);
+      }
+
+      function skPoly(points, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW) {
+        drawSketchyPoly(subdividePolygon(points, STYLE.polySeg, STYLE.jitter), strokeCol, fillCol, w);
+      }
+
+      function skEllipse(x, y, rx, ry, fillCol, strokeCol = STYLE.ink, w = STYLE.strokeW) {
+        const pts = [];
+        const n = 16;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * TWO_PI;
+          const j = (noise(i * 0.4, rx * 0.03) - 0.5) * STYLE.jitter;
+          pts.push({ x: x + cos(a) * (rx + j), y: y + sin(a) * (ry + j) });
+        }
+        skPoly(pts, fillCol, strokeCol, w);
+      }
+
+      function applySpring(obj) {
+        if (!obj.sp) obj.sp = { sc: 0, v: 0 };
+        const target = obj.targetScale != null ? obj.targetScale : 1;
+        const force = (target - obj.sp.sc) * 0.11;
+        obj.sp.v = (obj.sp.v + force) * 0.82;
+        obj.sp.sc += obj.sp.v;
+        if (obj.sp.sc > 1.35) obj.sp.sc = 1.35;
+        if (obj.sp.sc < -0.05) obj.sp.sc = -0.05;
+      }
+
+      let ox, oy, tw, th, vh;
+
+      /** 与房间一致的等距：地板沿 +ix→(tw,th)，+iz→(-tw,th)，高度 +iy→(0,-vh) */
+      function toScreen(ix, iy, iz) {
+        return {
+          x: ox + (ix - iz) * tw,
+          y: oy + (ix + iz) * th - iy * vh,
+        };
+      }
+
+      /** 锚点上的局部偏移（tile 单位）：floor 用 du,dv,dh；back 墙用 du,dh（沿 ix×tw 与高度）；left 墙用 dv,dh（du 位忽略） */
+      let _W = { mode: "floor", tw: 1, th: 1, vh: 1 };
+
+      function W(du, dv, dh) {
+        const { mode, tw: t, th: h, vh: H } = _W;
+        if (mode === "floor") return { x: du * t + dv * -t, y: du * h + dv * h - dh * H };
+        if (mode === "back") return { x: du * t, y: du * h - dh * H };
+        if (mode === "left") return { x: dv * -t, y: dv * h - dh * H };
+        return { x: 0, y: 0 };
+      }
+
+      function skPolyT(tris, fillCol, strokeCol, w) {
+        const pts = tris.map(([du, dv, dh]) => {
+          const p = W(du, dv, dh);
+          return { x: p.x, y: p.y };
+        });
+        skPoly(pts, fillCol, strokeCol, w);
+      }
+
+      function skLineT(a, b, strokeW, jit) {
+        const p1 = W(a[0], a[1], a[2]),
+          p2 = W(b[0], b[1], b[2]);
+        skLine(p1.x, p1.y, p2.x, p2.y, strokeW, jit);
+      }
+
+      function roomPolyBack() {
+        const p0 = toScreen(0, 3.2, 0);
+        const p1 = toScreen(4.2, 3.2, 0);
+        const p2 = toScreen(4.2, 0, 0);
+        const p3 = toScreen(0, 0, 0);
+        return [
+          { x: p0.x, y: p0.y },
+          { x: p1.x, y: p1.y },
+          { x: p2.x, y: p2.y },
+          { x: p3.x, y: p3.y },
+        ];
+      }
+
+      function roomPolyLeft() {
+        const p0 = toScreen(0, 3.2, 0);
+        const p1 = toScreen(0, 3.2, 4.2);
+        const p2 = toScreen(0, 0, 4.2);
+        const p3 = toScreen(0, 0, 0);
+        return [
+          { x: p0.x, y: p0.y },
+          { x: p1.x, y: p1.y },
+          { x: p2.x, y: p2.y },
+          { x: p3.x, y: p3.y },
+        ];
+      }
+
+      function roomPolyFloor() {
+        const p0 = toScreen(0, 0, 0);
+        const p1 = toScreen(0, 0, 4.2);
+        const p2 = toScreen(4.2, 0, 4.2);
+        const p3 = toScreen(4.2, 0, 0);
+        return [
+          { x: p0.x, y: p0.y },
+          { x: p1.x, y: p1.y },
+          { x: p2.x, y: p2.y },
+          { x: p3.x, y: p3.y },
+        ];
+      }
+
+      function drawRoomShell() {
+        randomSeed(90210);
+        skPoly(roomPolyBack(), PAL.wallDeep, STYLE.ink, 2.2);
+        skPoly(roomPolyLeft(), PAL.wall, STYLE.ink, 2.2);
+        skPoly(roomPolyFloor(), PAL.floor, STYLE.ink, 2.4);
+        const f = roomPolyFloor();
+        skLine(f[0].x, f[0].y, f[2].x, f[2].y, 1.2, 0.6);
+        skLine(f[1].x, f[1].y, f[3].x, f[3].y, 1.2, 0.6);
+      }
+
+      function drawWindowOnBack() {
+        randomSeed(441);
+        const iz0 = 0.04;
+        const ix0 = 1.55,
+          ix1 = 3.35;
+        const iy0 = 0.55,
+          iy1 = 2.45;
+        const tl = toScreen(ix0, iy1, iz0);
+        const tr = toScreen(ix1, iy1, iz0);
+        const br = toScreen(ix1, iy0, iz0);
+        const bl = toScreen(ix0, iy0, iz0);
+        skPoly(
+          [
+            { x: tl.x, y: tl.y },
+            { x: tr.x, y: tr.y },
+            { x: br.x, y: br.y },
+            { x: bl.x, y: bl.y },
+          ],
+          PAL.sky,
+          STYLE.ink,
+          2
+        );
+        const mx = (tl.x + tr.x + br.x + bl.x) / 4;
+        const my = (tl.y + tr.y + br.y + bl.y) / 4;
+        skLine(mx, tl.y, mx, br.y, 1.6, 0.45);
+        skLine(tl.x, (tl.y + bl.y) * 0.5, tr.x, (tr.y + br.y) * 0.5, 1.4, 0.4);
+        const o = 0.012;
+        skPoly(
+          [
+            { x: tl.x - tw * o, y: tl.y - vh * 0.08 },
+            { x: tl.x, y: tl.y },
+            { x: bl.x, y: bl.y },
+            { x: bl.x - tw * 0.1, y: bl.y + th * 0.4 },
+          ],
+          PAL.bedding,
+          STYLE.ink,
+          1.8
+        );
+        skPoly(
+          [
+            { x: tr.x + tw * o, y: tr.y - vh * 0.08 },
+            { x: tr.x, y: tr.y },
+            { x: br.x, y: br.y },
+            { x: br.x + tw * 0.1, y: br.y + th * 0.4 },
+          ],
+          PAL.bedding2,
+          STYLE.ink,
+          1.8
+        );
+      }
+
+      class RoomProp {
+        constructor(ix, iz, iy, depthKey, seed, wallKind, drawFn) {
+          this.ix = ix;
+          this.iz = iz;
+          this.iy = iy;
+          this.depthKey = depthKey;
+          this.seed = seed;
+          this.wallKind = wallKind;
+          this.drawFn = drawFn;
+          this.sp = { sc: 0, v: 0 };
+          this.targetScale = 1;
+        }
+        update() {
+          applySpring(this);
+        }
+        draw() {
+          randomSeed(this.seed);
+          const base = toScreen(this.ix, this.iy, this.iz);
+          const sc = this.sp.sc;
+          const mode = this.wallKind === "back" ? "back" : this.wallKind === "left" ? "left" : "floor";
+          _W = { mode, tw, th, vh };
+          push();
+          translate(base.x, base.y);
+          scale(sc);
+          translate(0, (1 - sc) * (-vh * 0.25));
+          this.drawFn();
+          pop();
+        }
+      }
+
+      function makeProps() {
+        return [
+          new RoomProp(1.85, 1.75, 0, 3.6, 101, "floor", drawRug),
+          new RoomProp(2.85, 3.05, 0, 5.9, 102, "floor", drawSlippers),
+          new RoomProp(1.45, 0.38, 0, 1.83, 103, "floor", drawBed),
+          new RoomProp(2.55, 0.52, 0, 3.07, 104, "floor", drawNightstandLamp),
+          new RoomProp(3.45, 1.35, 0, 4.85, 105, "floor", drawShelf),
+          new RoomProp(0.42, 2.55, 0, 2.97, 106, "floor", drawPlant),
+          new RoomProp(3.65, 2.75, 0, 6.4, 107, "floor", drawLaundryBasket),
+          new RoomProp(0.48, 1.25, 0, 1.73, 108, "floor", drawSmallChair),
+          new RoomProp(2.15, 2.95, 0, 5.1, 109, "floor", drawStackBooks),
+          new RoomProp(1.15, 3.15, 0, 4.3, 110, "floor", drawMug),
+          new RoomProp(3.35, 0.06, 1.5, 4.41, 111, "back", drawClock),
+          new RoomProp(0.08, 1.15, 1.42, 1.23, 112, "left", drawPoster),
+        ];
+      }
+
+      function drawRug() {
+        skPolyT(
+          [
+            [-0.55, -0.45, 0],
+            [0.65, -0.35, 0],
+            [0.55, 0.55, 0],
+            [-0.75, 0.45, 0],
+          ],
+          PAL.rugB,
+          STYLE.ink,
+          2
+        );
+        for (let i = -2; i <= 2; i++) {
+          const o = i * 0.18;
+          skLineT([-0.35 + o, -0.2, 0.01], [0.25 + o, 0.35, 0.01], 1.2, 0.35);
+        }
+        const c = W(0.05, 0.08, 0.02);
+        skEllipse(c.x, c.y, tw * 0.85, th * 0.55, PAL.rugA, STYLE.ink, 1.6);
+      }
+
+      function drawBed() {
+        skPolyT(
+          [
+            [-1.05, -0.12, 0],
+            [1.15, 0.22, 0],
+            [1.05, 0.78, 0],
+            [-1.12, 0.38, 0],
+          ],
+          PAL.woodDark,
+          STYLE.ink,
+          2.2
+        );
+        skPolyT(
+          [
+            [-0.98, -0.02, 0.06],
+            [1.08, 0.32, 0.06],
+            [0.98, 0.62, 0.18],
+            [-1.02, 0.28, 0.18],
+          ],
+          PAL.bedding,
+          STYLE.ink,
+          2
+        );
+        skPolyT(
+          [
+            [-0.55, 0.08, 0.22],
+            [0.35, 0.28, 0.24],
+            [0.28, 0.52, 0.32],
+            [-0.62, 0.32, 0.3],
+          ],
+          PAL.bedding2,
+          STYLE.inkSoft,
+          1.6
+        );
+        const p1 = W(-0.55, 0.05, 0.38);
+        const p2 = W(0.45, 0.35, 0.4);
+        skEllipse(p1.x, p1.y, tw * 0.55, th * 0.42, PAL.cream, STYLE.ink, 1.8);
+        skEllipse(p2.x, p2.y, tw * 0.52, th * 0.4, PAL.cream, STYLE.ink, 1.8);
+      }
+
+      function drawNightstandLamp() {
+        skPolyT(
+          [
+            [-0.22, -0.02, 0],
+            [0.22, -0.02, 0],
+            [0.2, 0.28, 0],
+            [-0.2, 0.28, 0],
+          ],
+          PAL.wood,
+          STYLE.ink,
+          2
+        );
+        skLineT([0, -0.02, 0], [0, -0.02, 1.35], 2, 0.55);
+        const top = W(0, -0.02, 1.55);
+        skPoly(
+          [
+            { x: top.x - tw * 0.42, y: top.y - vh * 0.12 },
+            { x: top.x + tw * 0.42, y: top.y - vh * 0.12 },
+            { x: top.x + tw * 0.32, y: top.y + th * 0.15 },
+            { x: top.x - tw * 0.32, y: top.y + th * 0.15 },
+          ],
+          PAL.lamp,
+          STYLE.ink,
+          1.8
+        );
+        noStroke();
+        fill(255, 230, 160, 95);
+        ellipse(top.x, top.y - vh * 0.02, tw * 0.95, vh * 0.38);
+      }
+
+      function drawShelf() {
+        skPolyT(
+          [
+            [-0.05, -0.02, 0],
+            [0.12, -0.05, 0],
+            [0.14, 0.18, 0],
+            [-0.08, 0.22, 0],
+          ],
+          PAL.wood,
+          STYLE.ink,
+          2
+        );
+        skLineT([-0.06, 0.02, 0.55], [0.12, 0.08, 0.58], 1.8, 0.45);
+        skLineT([-0.05, 0.04, 1.15], [0.11, 0.1, 1.18], 1.8, 0.45);
+        skPolyT(
+          [
+            [-0.12, -0.02, 0.62],
+            [0.02, 0.04, 0.65],
+            [0.02, 0.12, 0.72],
+            [-0.12, 0.06, 0.68],
+          ],
+          [200, 120, 110],
+          STYLE.ink,
+          1.45
+        );
+        skPolyT(
+          [
+            [0.02, 0.06, 0.78],
+            [0.14, 0.12, 0.82],
+            [0.14, 0.22, 0.92],
+            [0.02, 0.16, 0.88],
+          ],
+          [130, 170, 210],
+          STYLE.ink,
+          1.45
+        );
+        skPolyT(
+          [
+            [0, 0.08, 1.02],
+            [0.12, 0.14, 1.06],
+            [0.12, 0.24, 1.15],
+            [0, 0.18, 1.1],
+          ],
+          PAL.mint,
+          STYLE.ink,
+          1.45
+        );
+      }
+
+      function drawPlant() {
+        skPolyT(
+          [
+            [-0.18, 0.02, 0],
+            [0.18, 0.02, 0],
+            [0.15, 0.28, 0],
+            [-0.15, 0.28, 0],
+          ],
+          [220, 200, 175],
+          STYLE.ink,
+          2
+        );
+        const c = W(0, 0.06, 0.32);
+        skEllipse(c.x, c.y, tw * 0.75, th * 0.55, PAL.mint, STYLE.ink, 2);
+        skLineT([0, 0.06, 0.28], [-0.12, 0.1, 0.95], 1.55, 0.45);
+        skLineT([0, 0.06, 0.28], [0.12, 0.12, 0.98], 1.55, 0.45);
+        skLineT([0, 0.05, 0.22], [0, 0.08, 1.05], 1.5, 0.45);
+      }
+
+      function drawLaundryBasket() {
+        skPolyT(
+          [
+            [-0.22, -0.05, 0],
+            [0.22, -0.05, 0],
+            [0.2, 0.22, 0],
+            [-0.2, 0.22, 0],
+          ],
+          [235, 220, 200],
+          STYLE.ink,
+          2
+        );
+        skLineT([-0.18, 0.02, 0.05], [0.18, 0.08, 0.05], 1.2, 0.35);
+        skLineT([-0.16, 0.06, 0.1], [0.16, 0.12, 0.1], 1.2, 0.35);
+        const c = W(0, 0.02, 0.12);
+        skEllipse(c.x, c.y, tw * 0.65, th * 0.35, PAL.bedding, STYLE.inkSoft, 1.35);
+      }
+
+      function drawSmallChair() {
+        skPolyT(
+          [
+            [-0.2, -0.02, 0],
+            [0.2, -0.02, 0],
+            [0.18, 0.22, 0],
+            [-0.18, 0.22, 0],
+          ],
+          PAL.woodDark,
+          STYLE.ink,
+          2
+        );
+        skLineT([-0.16, -0.02, 0], [-0.16, -0.02, 0.85], 2, 0.5);
+        skLineT([0.16, -0.02, 0], [0.16, -0.02, 0.85], 2, 0.5);
+        skPolyT(
+          [
+            [-0.2, -0.02, 0.88],
+            [0.2, -0.02, 0.88],
+            [0.18, 0.08, 0.95],
+            [-0.18, 0.08, 0.95],
+          ],
+          PAL.bedding2,
+          STYLE.ink,
+          1.75
+        );
+      }
+
+      function drawStackBooks() {
+        for (let i = 0; i < 3; i++) {
+          const o = i * 0.06;
+          skPolyT(
+            [
+              [-0.22 + o, -0.05 + o * 0.5, 0.02 + i * 0.14],
+              [0.2 + o * 0.5, 0.02 + o * 0.5, 0.04 + i * 0.14],
+              [0.18 + o * 0.5, 0.12 + o, 0.08 + i * 0.14],
+              [-0.22 + o, 0.05 + o, 0.06 + i * 0.14],
+            ],
+            i === 0 ? [200, 140, 120] : i === 1 ? [140, 170, 210] : [210, 200, 160],
+            STYLE.ink,
+            1.55
+          );
+        }
+      }
+
+      function drawMug() {
+        skPolyT(
+          [
+            [-0.12, -0.02, 0.02],
+            [0.12, 0.02, 0.02],
+            [0.1, 0.15, 0.05],
+            [-0.1, 0.12, 0.05],
+          ],
+          [240, 225, 200],
+          STYLE.ink,
+          1.75
+        );
+        const h = W(0.12, 0.04, 0.08);
+        skLine(h.x, h.y, h.x + tw * 0.35, h.y - th * 0.25, 1.35, 0.35);
+        skLine(h.x, h.y + th * 0.12, h.x + tw * 0.32, h.y - th * 0.08, 1.35, 0.35);
+      }
+
+      function drawClock() {
+        const c = W(0, 0, 0);
+        skEllipse(c.x, c.y - vh * 0.35, tw * 0.42, tw * 0.42, PAL.cream, STYLE.ink, 2);
+        skLine(c.x, c.y - vh * 0.35, c.x, c.y - vh * 0.62, 1.55, 0.35);
+        skLine(c.x, c.y - vh * 0.35, c.x + tw * 0.22, c.y - vh * 0.28, 1.25, 0.32);
+      }
+
+      function drawPoster() {
+        skPolyT(
+          [
+            [0, -0.05, 0.35],
+            [0, 0.42, 0.35],
+            [0, 0.42, 1.55],
+            [0, -0.05, 1.55],
+          ],
+          [255, 248, 235],
+          STYLE.ink,
+          1.75
+        );
+        const m = W(0, 0.18, 0.95);
+        skEllipse(m.x, m.y, tw * 0.32, th * 0.28, PAL.mint, STYLE.inkSoft, 1.25);
+        skLineT([0, 0.12, 1.12], [0, 0.28, 1.18], 1.15, 0.32);
+      }
+
+      function drawSlippers() {
+        const a = W(-0.12, 0.08, 0.02);
+        const b = W(0.1, 0.15, 0.04);
+        skEllipse(a.x, a.y, tw * 0.38, th * 0.22, [255, 200, 185], STYLE.ink, 1.5);
+        skEllipse(b.x, b.y, tw * 0.38, th * 0.22, [200, 220, 255], STYLE.ink, 1.5);
+      }
+
+      let props = [];
+
+      function layoutOrigin() {
+        const m = min(width, height);
+        tw = m * 0.1;
+        th = m * 0.056;
+        vh = m * 0.11;
+        const ixC = 2.1,
+          izC = 2.1;
+        ox = width * 0.5 - (ixC - izC) * tw;
+        oy = height * 0.58 - (ixC + izC) * th;
+      }
+
+      function kickPopAll() {
+        for (const p of props) {
+          p.sp.sc = max(0.08, p.sp.sc * 0.35);
+          p.sp.v += random(0.38, 0.58);
+        }
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        randomSeed(20260503);
+        layoutOrigin();
+        props = makeProps();
+        for (const p of props) {
+          p.sp = { sc: 0, v: random(0.12, 0.28) };
+        }
+      }
+
+      function draw() {
+        randomSeed(20260503);
+        background(252, 240, 224);
+        noStroke();
+        for (let i = 5; i >= 1; i--) {
+          fill(255, 220, 190, 5 * i);
+          ellipse(width * 0.25, height * 0.2, 200 * i, 160 * i);
+          fill(200, 225, 245, 4 * i);
+          ellipse(width * 0.82, height * 0.15, 180 * i, 140 * i);
+        }
+
+        layoutOrigin();
+        drawRoomShell();
+        drawWindowOnBack();
+
+        props.sort((a, b) => a.depthKey - b.depthKey);
+        for (const p of props) p.update();
+        for (const p of props) p.draw();
+
+        randomSeed(20260503);
+        fill(...STYLE.inkSoft);
+        noStroke();
+        textAlign(CENTER);
+        textSize(15);
+        text("立方体小房间 · 紧凑温馨卧室", width / 2, height - 22);
+      }
+
+      function mousePressed() {
+        kickPopAll();
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        layoutOrigin();
+      }
+    </script>
+  </body>
+</html>
